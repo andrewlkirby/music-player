@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -149,7 +150,7 @@ fun FoldersScreen(
                 navigationIcon = {
                     if (state.currentPath.isNotEmpty()) {
                         IconButton(onClick = { viewModel.navigateUp() }) {
-                            Icon(Icons.Default.ArrowBack, "Up")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up")
                         }
                     }
                 }
@@ -231,7 +232,7 @@ fun FoldersScreen(
                 }
 
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(state.items, key = { _, item -> item.fullPath }) { index, item ->
+                    itemsIndexed(state.items, key = { _, item -> item.fullPath }) { _, item ->
                         if (item.isDirectory) {
                             // Folder row
                             ListItem(

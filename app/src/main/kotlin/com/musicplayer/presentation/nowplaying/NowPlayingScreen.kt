@@ -78,7 +78,7 @@ fun NowPlayingScreen(
             if (showQueue) {
                 QueueView(
                     state = state,
-                    onSongClick = { index ->
+                    onSongClick = { _ ->
                         // Seek to item in queue — controller handles this via MediaController
                     },
                     onClose = { showQueue = false }

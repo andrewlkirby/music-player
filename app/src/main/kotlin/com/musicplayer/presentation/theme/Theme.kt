@@ -56,6 +56,7 @@ private val LightColorScheme = lightColorScheme(
     outline = Color(0xFF72777F)
 )
 
+@Suppress("DEPRECATION") // statusBarColor has no replacement pre-API 35; still required for minSdk 26 support
 @Composable
 fun MusicPlayerTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),

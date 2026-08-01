@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -59,6 +61,7 @@ class AlbumsViewModel @Inject constructor(
     fun setSortOrder(order: SortOrder) { sortOrder.value = order }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AlbumDetailViewModel @Inject constructor(
     private val repository: MusicRepository
@@ -98,7 +101,7 @@ fun AlbumsScreen(
                 title = { Text("Albums") },
                 actions = {
                     IconButton(onClick = { showSortMenu = true }) {
-                        Icon(Icons.Default.Sort, "Sort")
+                        Icon(Icons.AutoMirrored.Filled.Sort, "Sort")
                     }
                     DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                         DropdownMenuItem(text = { Text("Name A-Z") }, onClick = {
@@ -194,7 +197,7 @@ fun AlbumDetailScreen(
                 title = { Text(album?.name ?: "Album") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 }
             )

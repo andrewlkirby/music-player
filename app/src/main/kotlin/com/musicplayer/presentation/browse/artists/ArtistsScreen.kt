@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,6 +29,7 @@ import com.musicplayer.presentation.PlayerViewModel
 import com.musicplayer.presentation.browse.albums.AlbumGridCard
 import com.musicplayer.presentation.browse.songs.SongListItem
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 
@@ -39,6 +41,7 @@ class ArtistsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ArtistDetailViewModel @Inject constructor(
     private val repository: MusicRepository
@@ -128,7 +131,7 @@ fun ArtistDetailScreen(
             TopAppBar(
                 title = { Text(artist?.name ?: "Artist") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 }
             )
         }
