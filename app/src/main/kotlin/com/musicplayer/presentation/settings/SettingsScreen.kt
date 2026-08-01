@@ -1,6 +1,9 @@
 package com.musicplayer.presentation.settings
 
+import android.app.DownloadManager
 import android.net.Uri
+import android.os.Environment
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -20,6 +23,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
+import com.musicplayer.BuildConfig
 import com.musicplayer.worker.SdCardScanWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -28,9 +32,27 @@ import android.content.Intent
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import javax.inject.Inject
+
+private const val UPDATE_REPO = "andrewlkirby/music-player"
+
+sealed class UpdateState {
+    data object Idle : UpdateState()
+    data object Checking : UpdateState()
+    data object UpToDate : UpdateState()
+    data class Available(val version: String, val downloadUrl: String) : UpdateState()
+    data class Downloading(val progressPercent: Int) : UpdateState()
+    data class ReadyToInstall(val uri: Uri) : UpdateState()
+    data class Error(val message: String) : UpdateState()
+}
 
 // DataStore for persisting picked folder URIs
 val Context.settingsDataStore by preferencesDataStore("settings")
@@ -92,6 +114,130 @@ class SettingsViewModel @Inject constructor(
             }
         }
     }
+
+    // ── Self-update ────────────────────────────────────────────────────
+
+    val currentVersion: String = BuildConfig.VERSION_NAME
+
+    private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
+
+    fun checkForUpdate() {
+        viewModelScope.launch {
+            _updateState.value = UpdateState.Checking
+            try {
+                val (latestVersion, downloadUrl) = withContext(Dispatchers.IO) { fetchLatestRelease() }
+                _updateState.value = when {
+                    downloadUrl == null -> UpdateState.Error("Latest release has no APK attached")
+                    isNewer(latestVersion, currentVersion) -> UpdateState.Available(latestVersion, downloadUrl)
+                    else -> UpdateState.UpToDate
+                }
+            } catch (e: Exception) {
+                _updateState.value = UpdateState.Error(e.message ?: "Update check failed")
+            }
+        }
+    }
+
+    fun downloadUpdate(downloadUrl: String, version: String) {
+        viewModelScope.launch {
+            _updateState.value = UpdateState.Downloading(0)
+            try {
+                val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                val request = DownloadManager.Request(Uri.parse(downloadUrl))
+                    .setTitle("Music Player update")
+                    .setDescription("Downloading v$version")
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "music-player-update.apk")
+                    .setMimeType("application/vnd.android.package-archive")
+                val downloadId = withContext(Dispatchers.IO) { downloadManager.enqueue(request) }
+
+                var downloading = true
+                while (downloading) {
+                    val cursor = downloadManager.query(DownloadManager.Query().setFilterById(downloadId))
+                    cursor.use {
+                        if (it.moveToFirst()) {
+                            when (it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
+                                DownloadManager.STATUS_SUCCESSFUL -> {
+                                    downloading = false
+                                    val uri = downloadManager.getUriForDownloadedFile(downloadId)
+                                    _updateState.value = UpdateState.ReadyToInstall(uri)
+                                }
+                                DownloadManager.STATUS_FAILED -> {
+                                    downloading = false
+                                    _updateState.value = UpdateState.Error("Download failed")
+                                }
+                                else -> {
+                                    val bytes = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                                    val total = it.getLong(it.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                                    val pct = if (total > 0) ((bytes * 100) / total).toInt() else 0
+                                    _updateState.value = UpdateState.Downloading(pct)
+                                }
+                            }
+                        }
+                    }
+                    if (downloading) delay(400)
+                }
+            } catch (e: Exception) {
+                _updateState.value = UpdateState.Error(e.message ?: "Download failed")
+            }
+        }
+    }
+
+    fun installUpdate(uri: Uri) {
+        if (!context.packageManager.canRequestPackageInstalls()) {
+            val settingsIntent = Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:${context.packageName}")
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(settingsIntent)
+            return
+        }
+        val installIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+        }
+        context.startActivity(installIntent)
+    }
+
+    /** Returns (versionWithoutV, apkDownloadUrlOrNull) for the latest GitHub release. */
+    private fun fetchLatestRelease(): Pair<String, String?> {
+        val url = URL("https://api.github.com/repos/$UPDATE_REPO/releases/latest")
+        val connection = url.openConnection() as HttpURLConnection
+        connection.setRequestProperty("Accept", "application/vnd.github+json")
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 10_000
+        try {
+            if (connection.responseCode != 200) {
+                throw Exception("GitHub returned HTTP ${connection.responseCode}")
+            }
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(body)
+            val tag = json.getString("tag_name").removePrefix("v")
+            val assets = json.getJSONArray("assets")
+            var apkUrl: String? = null
+            for (i in 0 until assets.length()) {
+                val asset = assets.getJSONObject(i)
+                if (asset.getString("name").endsWith(".apk")) {
+                    apkUrl = asset.getString("browser_download_url")
+                    break
+                }
+            }
+            return tag to apkUrl
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun isNewer(remote: String, local: String): Boolean {
+        val r = remote.split(".").map { it.toIntOrNull() ?: 0 }
+        val l = local.split(".").map { it.toIntOrNull() ?: 0 }
+        for (i in 0 until maxOf(r.size, l.size)) {
+            val rv = r.getOrElse(i) { 0 }
+            val lv = l.getOrElse(i) { 0 }
+            if (rv != lv) return rv > lv
+        }
+        return false
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,8 +247,14 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val folders by viewModel.watchedFolders.collectAsState()
+    val updateState by viewModel.updateState.collectAsState()
     var scanning by remember { mutableStateOf(false) }
     var showConfirmRemove by remember { mutableStateOf<Uri?>(null) }
+
+    // Once the APK finishes downloading, immediately hand off to the installer
+    LaunchedEffect(updateState) {
+        (updateState as? UpdateState.ReadyToInstall)?.let { viewModel.installUpdate(it.uri) }
+    }
 
     // SAF folder picker launcher
     val folderPickerLauncher = rememberLauncherForActivityResult(
@@ -323,11 +475,112 @@ fun SettingsScreen(
             item {
                 ListItem(
                     headlineContent = { Text("Music Player") },
-                    supportingContent = { Text("Version 1.0.0") },
+                    supportingContent = { Text("Version ${viewModel.currentVersion}") },
                     leadingContent = {
                         Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.primary)
                     }
                 )
+            }
+
+            // ── Update row, driven by updateState ────────────────────────
+            item {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    when (val state = updateState) {
+                        is UpdateState.Idle -> {
+                            OutlinedButton(
+                                onClick = { viewModel.checkForUpdate() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.SystemUpdate, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Get Update")
+                            }
+                        }
+                        is UpdateState.Checking -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(12.dp))
+                                Text("Checking for updates…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        is UpdateState.UpToDate -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("You're on the latest version", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        is UpdateState.Available -> {
+                            Button(
+                                onClick = { viewModel.downloadUpdate(state.downloadUrl, state.version) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Download, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Update to v${state.version}")
+                            }
+                        }
+                        is UpdateState.Downloading -> {
+                            Column {
+                                Text(
+                                    "Downloading update… ${state.progressPercent}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                LinearProgressIndicator(
+                                    progress = { state.progressPercent / 100f },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                        is UpdateState.ReadyToInstall -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text("Opening installer…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        "If nothing happens, allow \"Install unknown apps\" for this app, then tap Install below.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { viewModel.installUpdate(state.uri) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Install")
+                            }
+                        }
+                        is UpdateState.Error -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.ErrorOutline,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(state.message, color = MaterialTheme.colorScheme.error)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { viewModel.checkForUpdate() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Retry")
+                            }
+                        }
+                    }
+                }
             }
         }
     }

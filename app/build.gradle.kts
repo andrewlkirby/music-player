@@ -13,8 +13,10 @@ android {
         applicationId = "com.musicplayer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // versionName must match the pushed git tag (without the "v") — the
+        // in-app updater compares this against the latest GitHub release tag.
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

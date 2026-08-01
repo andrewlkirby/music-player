@@ -15,6 +15,9 @@
     <!-- Network for artwork fallback -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Self-update: install the APK downloaded from GitHub Releases -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Wake lock for background playback -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
