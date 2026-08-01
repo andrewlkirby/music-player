@@ -99,11 +99,17 @@ fun SongsScreen(
 fun SongListItem(
     song: Song,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showTrackNumber: Boolean = false
 ) {
     ListItem(
         headlineContent = {
-            Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val title = if (showTrackNumber && song.trackNumber > 0) {
+                "${song.trackNumber}. ${song.title}"
+            } else {
+                song.title
+            }
+            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
         supportingContent = {
             Text(

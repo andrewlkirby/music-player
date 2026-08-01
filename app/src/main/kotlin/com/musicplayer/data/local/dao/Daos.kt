@@ -42,9 +42,6 @@ interface SongDao {
     @Query("SELECT DISTINCT RTRIM(RTRIM(path, REPLACE(path, '/', '')), '/') as folder FROM songs ORDER BY folder ASC")
     suspend fun getAllFolderPaths(): List<String>
 
-    @Query("SELECT COUNT(*) FROM songs WHERE path LIKE :folderPath || '/%'")
-    suspend fun getSongCountInFolder(folderPath: String): Int
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSongs(songs: List<SongEntity>)
 

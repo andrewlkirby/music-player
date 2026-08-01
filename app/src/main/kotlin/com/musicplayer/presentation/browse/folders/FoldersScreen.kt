@@ -1,5 +1,6 @@
 package com.musicplayer.presentation.browse.folders
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -8,6 +9,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,11 +36,16 @@ data class FolderItem(
     val songCount: Int = 0
 )
 
+enum class FolderSongSort {
+    TrackNumber, Name
+}
+
 data class FoldersUiState(
     val currentPath: String = "",
     val breadcrumbs: List<String> = emptyList(),
     val items: List<FolderItem> = emptyList(),
     val songs: List<Song> = emptyList(),
+    val songSort: FolderSongSort = FolderSongSort.TrackNumber,
     val isLoading: Boolean = true
 )
 
@@ -51,6 +58,8 @@ class FoldersViewModel @Inject constructor(
     val uiState: StateFlow<FoldersUiState> = _uiState.asStateFlow()
 
     private var allPaths: List<String> = emptyList()
+    private var subDirs: List<FolderItem> = emptyList()
+    private var unsortedDirectSongs: List<Song> = emptyList()
 
     init {
         viewModelScope.launch {
@@ -82,16 +91,6 @@ class FoldersViewModel @Inject constructor(
                 .filter { it.isNotEmpty() }
                 .toSet()
 
-            val subDirs = childNames.map { name ->
-                val dirPath = (prefixWithSlash + name).replace("//", "/")
-                FolderItem(
-                    name = name,
-                    fullPath = dirPath,
-                    isDirectory = true,
-                    songCount = repository.getSongCountInFolder(dirPath)
-                )
-            }.sortedBy { it.name.lowercase() }
-
             // Songs directly in this folder (single-shot read; avoids leaking a live collector)
             val songsFlow = if (path.isEmpty()) {
                 repository.getAllSongs()
@@ -105,23 +104,39 @@ class FoldersViewModel @Inject constructor(
                 songDir == path.trimEnd('/')
             }
 
-            val folderItems = subDirs + directSongs.map { song ->
+            // Per-child song counts derived from the same recursive result set above,
+            // instead of one extra DB round-trip per subfolder (was the slow part for
+            // folders with many children).
+            val childSongCounts = songs
+                .asSequence()
+                .filter { it.path.startsWith(prefixWithSlash) }
+                .mapNotNull { song ->
+                    val rest = song.path.removePrefix(prefixWithSlash)
+                    val slashIndex = rest.indexOf('/')
+                    if (slashIndex < 0) null else rest.substring(0, slashIndex)
+                }
+                .groupingBy { it }
+                .eachCount()
+
+            subDirs = childNames.map { name ->
+                val dirPath = (prefixWithSlash + name).replace("//", "/")
                 FolderItem(
-                    name = song.path.substringAfterLast("/"),
-                    fullPath = song.path,
-                    isDirectory = false
+                    name = name,
+                    fullPath = dirPath,
+                    isDirectory = true,
+                    songCount = childSongCounts[name] ?: 0
                 )
-            }
+            }.sortedBy { it.name.lowercase() }
+            unsortedDirectSongs = directSongs
 
             _uiState.update {
                 it.copy(
                     currentPath = path,
                     breadcrumbs = breadcrumbs,
-                    items = folderItems,
-                    songs = directSongs,
                     isLoading = false
                 )
             }
+            applySort()
         }
     }
 
@@ -133,6 +148,34 @@ class FoldersViewModel @Inject constructor(
         }
         navigateTo(parent)
     }
+
+    fun setSongSort(order: FolderSongSort) {
+        _uiState.update { it.copy(songSort = order) }
+        applySort()
+    }
+
+    private fun applySort() {
+        val order = _uiState.value.songSort
+        val sortedSongs = when (order) {
+            FolderSongSort.TrackNumber -> unsortedDirectSongs.sortedWith(
+                compareBy(
+                    { if (it.trackNumber > 0) it.trackNumber else Int.MAX_VALUE },
+                    { it.title.lowercase() }
+                )
+            )
+            FolderSongSort.Name -> unsortedDirectSongs.sortedBy { it.title.lowercase() }
+        }
+
+        val folderItems = subDirs + sortedSongs.map { song ->
+            FolderItem(
+                name = song.path.substringAfterLast("/"),
+                fullPath = song.path,
+                isDirectory = false
+            )
+        }
+
+        _uiState.update { it.copy(items = folderItems, songs = sortedSongs) }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -142,6 +185,11 @@ fun FoldersScreen(
     viewModel: FoldersViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    var showSortMenu by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = state.currentPath.isNotEmpty()) {
+        viewModel.navigateUp()
+    }
 
     Scaffold(
         topBar = {
@@ -151,6 +199,21 @@ fun FoldersScreen(
                     if (state.currentPath.isNotEmpty()) {
                         IconButton(onClick = { viewModel.navigateUp() }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up")
+                        }
+                    }
+                },
+                actions = {
+                    if (state.songs.isNotEmpty()) {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.AutoMirrored.Filled.Sort, "Sort")
+                        }
+                        DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                            DropdownMenuItem(text = { Text("Track Number") }, onClick = {
+                                viewModel.setSongSort(FolderSongSort.TrackNumber); showSortMenu = false
+                            })
+                            DropdownMenuItem(text = { Text("Name (A-Z)") }, onClick = {
+                                viewModel.setSongSort(FolderSongSort.Name); showSortMenu = false
+                            })
                         }
                     }
                 }
@@ -265,7 +328,8 @@ fun FoldersScreen(
                                 val songIndex = state.songs.indexOf(song)
                                 SongListItem(
                                     song = song,
-                                    onClick = { playerViewModel.playSongs(state.songs, songIndex) }
+                                    onClick = { playerViewModel.playSongs(state.songs, songIndex) },
+                                    showTrackNumber = true
                                 )
                             }
                         }

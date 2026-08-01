@@ -110,9 +110,6 @@ class MusicRepository @Inject constructor(
     suspend fun getAllFolderPaths(): List<String> =
         db.songDao().getAllFolderPaths()
 
-    suspend fun getSongCountInFolder(folderPath: String): Int =
-        db.songDao().getSongCountInFolder(folderPath)
-
     suspend fun getSongCount(): Int = db.songDao().getSongCount()
 
     // ── Direct insert (SAF / SD card scans) ──────────────────────────────
