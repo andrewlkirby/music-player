@@ -124,10 +124,22 @@ class MusicRepository @Inject constructor(
         // commit is a WAL fsync, so batching a scan's inserts into a single
         // commit cuts that overhead by 3x per batch.
         db.withTransaction {
-            db.songDao().insertSongs(songs)
-            db.albumDao().insertAlbums(albums)
-            db.artistDao().insertArtists(artists)
+            insertSongsAndMetadata(songs, albums, artists)
         }
+    }
+
+    // Split out from insertSongsDirectly so it's callable — and testable —
+    // without going through Room's withTransaction coroutine machinery,
+    // which needs a real (or Robolectric) database and hangs against a bare
+    // mock in a plain JVM unit test.
+    internal suspend fun insertSongsAndMetadata(
+        songs: List<com.musicplayer.data.local.entities.SongEntity>,
+        albums: List<com.musicplayer.data.local.entities.AlbumEntity>,
+        artists: List<com.musicplayer.data.local.entities.ArtistEntity>
+    ) {
+        db.songDao().insertSongs(songs)
+        db.albumDao().insertAlbums(albums)
+        db.artistDao().insertArtists(artists)
     }
 
     // ── Playback state ────────────────────────────────────────────────────

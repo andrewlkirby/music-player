@@ -78,7 +78,12 @@ class MusicRepositoryTest {
             )
         )
 
-        repository.insertSongsDirectly(songs, albums, artists)
+        // Exercises insertSongsAndMetadata directly rather than
+        // insertSongsDirectly (its withTransaction-wrapped caller) — Room's
+        // transaction coroutine machinery needs a real database and hangs
+        // against a bare mock here; the DAO-delegation behavior under test
+        // is identical either way.
+        repository.insertSongsAndMetadata(songs, albums, artists)
 
         verify(mockSongDao).insertSongs(songs)
         verify(mockAlbumDao).insertAlbums(albums)
