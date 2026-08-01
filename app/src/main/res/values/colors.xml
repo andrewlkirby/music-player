@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="window_background">#FFF8F9FF</color>
+    <color name="window_background_dark">#FF0F1318</color>
+
+    <!-- Brand colours used in notification icon tinting -->
+    <color name="notification_color">#FF005EA8</color>
+
+    <!-- Placeholder / fallback artwork background -->
+    <color name="artwork_placeholder">#FFE3E6EF</color>
+    <color name="artwork_placeholder_dark">#FF1E2430</color>
+</resources>

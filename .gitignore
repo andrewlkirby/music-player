@@ -1,0 +1,23 @@
+# Local configuration (SDK path, machine-specific)
+local.properties
+
+# Gradle
+.gradle/
+build/
+app/build/
+app/schemas/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystores — never commit signing keys
+*.jks
+*.keystore
+
+# Log/tmp
+*.log
