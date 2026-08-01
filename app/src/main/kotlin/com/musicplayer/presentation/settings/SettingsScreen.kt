@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.musicplayer.BuildConfig
 import com.musicplayer.worker.SdCardScanWorker
@@ -54,6 +55,12 @@ sealed class UpdateState {
     data class Error(val message: String) : UpdateState()
 }
 
+sealed class ScanStatus {
+    data object Idle : ScanStatus()
+    data class Scanning(val foldersScanned: Int, val songsFound: Int) : ScanStatus()
+    data class Saving(val songsSaved: Int, val songsTotal: Int) : ScanStatus()
+}
+
 // DataStore for persisting picked folder URIs
 val Context.settingsDataStore by preferencesDataStore("settings")
 val KEY_WATCHED_URIS = stringSetPreferencesKey("watched_folder_uris")
@@ -70,6 +77,39 @@ class SettingsViewModel @Inject constructor(
                 ?: emptyList()
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val scanStatus: StateFlow<ScanStatus> = WorkManager.getInstance(context)
+        .getWorkInfosByTagFlow(SdCardScanWorker.TAG)
+        .map { infos -> aggregateScanStatus(infos) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ScanStatus.Idle)
+
+    private fun aggregateScanStatus(infos: List<WorkInfo>): ScanStatus {
+        val active = infos.filter { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
+        if (active.isEmpty()) return ScanStatus.Idle
+
+        var foldersScanned = 0
+        var songsFound = 0
+        var songsSaved = 0
+        var songsTotal = 0
+        var anyScanning = false
+
+        active.forEach { info ->
+            if (info.progress.getString(SdCardScanWorker.KEY_PHASE) == SdCardScanWorker.PHASE_SAVING) {
+                songsSaved += info.progress.getInt(SdCardScanWorker.KEY_SONGS_SAVED, 0)
+                songsTotal += info.progress.getInt(SdCardScanWorker.KEY_SONGS_TOTAL, 0)
+            } else {
+                anyScanning = true
+                foldersScanned += info.progress.getInt(SdCardScanWorker.KEY_FOLDERS_SCANNED, 0)
+                songsFound += info.progress.getInt(SdCardScanWorker.KEY_SONGS_FOUND, 0)
+            }
+        }
+
+        return if (anyScanning) {
+            ScanStatus.Scanning(foldersScanned, songsFound)
+        } else {
+            ScanStatus.Saving(songsSaved, songsTotal)
+        }
+    }
 
     fun addFolder(uri: Uri) {
         viewModelScope.launch {
@@ -248,7 +288,7 @@ fun SettingsScreen(
 ) {
     val folders by viewModel.watchedFolders.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
-    var scanning by remember { mutableStateOf(false) }
+    val scanStatus by viewModel.scanStatus.collectAsState()
     var showConfirmRemove by remember { mutableStateOf<Uri?>(null) }
 
     // Once the APK finishes downloading, immediately hand off to the installer
@@ -262,7 +302,6 @@ fun SettingsScreen(
     ) { uri ->
         if (uri != null) {
             viewModel.addFolder(uri)
-            scanning = true
         }
     }
 
@@ -413,10 +452,7 @@ fun SettingsScreen(
                 item {
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(
-                        onClick = {
-                            viewModel.rescanAll()
-                            scanning = true
-                        },
+                        onClick = { viewModel.rescanAll() },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
@@ -429,33 +465,71 @@ fun SettingsScreen(
             }
 
             // ── Scan status ─────────────────────────────────────────────
-            if (scanning) {
-                item {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+            when (val status = scanStatus) {
+                is ScanStatus.Idle -> {}
+                is ScanStatus.Scanning -> {
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                            )
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(12.dp))
-                            Column {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        "Scanning folders…",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        "Found ${status.songsFound} songs in ${status.foldersScanned} folders so far",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                is ScanStatus.Saving -> {
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
-                                    "Scanning in background…",
+                                    "Saving songs to your library…",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
-                                Text(
-                                    "Your songs will appear in the library shortly.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
+                                Spacer(Modifier.height(8.dp))
+                                if (status.songsTotal > 0) {
+                                    LinearProgressIndicator(
+                                        progress = { status.songsSaved.toFloat() / status.songsTotal },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "${status.songsSaved} of ${status.songsTotal} songs",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                } else {
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                }
                             }
                         }
                     }

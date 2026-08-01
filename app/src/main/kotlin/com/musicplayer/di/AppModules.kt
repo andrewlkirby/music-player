@@ -5,6 +5,8 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.musicplayer.data.local.MusicDatabase
 import com.musicplayer.data.local.dao.*
 import com.musicplayer.data.repository.MusicRepository
@@ -24,6 +26,17 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext context: Context): MusicDatabase =
         Room.databaseBuilder(context, MusicDatabase::class.java, "music_player.db")
             .fallbackToDestructiveMigration()
+            // Room defaults to WAL + synchronous=FULL, which fsyncs on every
+            // commit. NORMAL still fsyncs at WAL checkpoints and is safe
+            // against app/process crashes with WAL — it only trades away
+            // durability of the last commit(s) on an OS crash/power loss,
+            // which is an acceptable tradeoff for a rebuildable music index.
+            .addCallback(object : RoomDatabase.Callback() {
+                override fun onOpen(db: SupportSQLiteDatabase) {
+                    super.onOpen(db)
+                    db.execSQL("PRAGMA synchronous=NORMAL")
+                }
+            })
             .build()
 
     @Provides

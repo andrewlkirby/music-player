@@ -2,8 +2,8 @@ package com.musicplayer.worker
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.MediaStore
-import androidx.documentfile.provider.DocumentFile
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.musicplayer.data.local.entities.AlbumEntity
@@ -13,9 +13,17 @@ import com.musicplayer.data.repository.MusicRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
-import java.io.File
 import androidx.core.net.toUri
+import java.util.concurrent.atomic.AtomicInteger
 
 @HiltWorker
 class SdCardScanWorker @AssistedInject constructor(
@@ -23,6 +31,9 @@ class SdCardScanWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val repository: MusicRepository
 ) : CoroutineWorker(appContext, workerParams) {
+
+    private val foldersScanned = AtomicInteger(0)
+    private val songsFound = AtomicInteger(0)
 
     override suspend fun doWork(): Result {
         val uriString = inputData.getString(KEY_URI) ?: return Result.failure()
@@ -105,34 +116,54 @@ class SdCardScanWorker @AssistedInject constructor(
         return index
     }
 
-    // ── Step 2: walk the SAF tree, batch inserts every 500 files ──────────
-    private suspend fun scanTreeUri(treeUri: Uri) {
-        android.util.Log.d("SdCardScanWorker", "Starting scan for tree: $treeUri")
-        val rootPath = getRealPath(treeUri)
-        android.util.Log.d("SdCardScanWorker", "Resolved root path: $rootPath")
-        val mediaStoreIndex = buildMediaStoreIndex(rootPath)
-        android.util.Log.d("SdCardScanWorker", "MediaStore index size for this path: ${mediaStoreIndex.size}")
+    // ── Step 2: walk the SAF tree in parallel, batch inserts every 500 files ──
+    private suspend fun scanTreeUri(treeUri: Uri): Unit = coroutineScope {
+        setProgress(workDataOf(KEY_PHASE to PHASE_SCANNING))
 
-        val docFile = DocumentFile.fromTreeUri(applicationContext, treeUri) ?: run {
-            android.util.Log.e("SdCardScanWorker", "Failed to get DocumentFile from treeUri")
-            return
+        // Reports folders/songs-found counts while the tree walk is in
+        // flight — we don't know the total up front, so this is the best
+        // signal of liveness/progress until the walk completes.
+        val progressTicker = launch {
+            while (isActive) {
+                delay(PROGRESS_INTERVAL_MS)
+                setProgress(
+                    workDataOf(
+                        KEY_PHASE to PHASE_SCANNING,
+                        KEY_FOLDERS_SCANNED to foldersScanned.get(),
+                        KEY_SONGS_FOUND to songsFound.get()
+                    )
+                )
+            }
         }
-        val audioFiles = mutableListOf<DocumentFile>()
-        collectAudioFiles(docFile, audioFiles)
 
-        android.util.Log.d("SdCardScanWorker", "Found ${audioFiles.size} audio files in SAF tree")
-        
+        val rootPath = getRealPath(treeUri)
+        val mediaStoreIndex = buildMediaStoreIndex(rootPath)
+
+        val semaphore = Semaphore(SCAN_CONCURRENCY)
+        val audioFiles = collectAudioFiles(treeUri, DocumentsContract.getTreeDocumentId(treeUri), semaphore)
+
+        progressTicker.cancel()
+
         if (audioFiles.isEmpty() && mediaStoreIndex.isNotEmpty()) {
             android.util.Log.w("SdCardScanWorker", "SAF found no files but MediaStore has some. This might be a SAF permission issue.")
         }
 
+        setProgress(
+            workDataOf(
+                KEY_PHASE to PHASE_SAVING,
+                KEY_SONGS_TOTAL to audioFiles.size,
+                KEY_SONGS_SAVED to 0
+            )
+        )
+
         val songs      = mutableListOf<SongEntity>()
         val albumMap   = mutableMapOf<String, AlbumEntity>()
         val artistMap  = mutableMapOf<String, ArtistEntity>()
+        var songsSaved = 0
 
         audioFiles.forEach { file ->
             val fileUri  = file.uri
-            val fileName = file.name ?: return@forEach
+            val fileName = file.name
 
             // Derive the real filesystem path from the SAF URI so we can
             // look it up in the MediaStore index we built above.
@@ -190,9 +221,9 @@ class SdCardScanWorker @AssistedInject constructor(
                 trackNumber  = tagData?.trackNumber ?: 0
                 year         = tagData?.year ?: 0
                 genre        = tagData?.genre ?: ""
-                size         = file.length()
-                dateAdded    = file.lastModified()
-                lastModified = file.lastModified()
+                size         = file.size
+                dateAdded    = file.lastModified
+                lastModified = file.lastModified
             }
 
             songs.add(
@@ -238,19 +269,25 @@ class SdCardScanWorker @AssistedInject constructor(
                 )
             }
 
-            // Flush to DB every 500 songs to keep memory bounded
-            if (songs.size >= 500) {
+            // Flush to DB periodically — each flush is now one transaction
+            // (see insertSongsDirectly), so a larger batch means fewer
+            // commits without meaningfully increasing memory use.
+            if (songs.size >= SAVE_BATCH_SIZE) {
+                songsSaved += songs.size
                 flushBatch(songs, albumMap, artistMap)
                 songs.clear()
                 albumMap.clear()
                 artistMap.clear()
+                setProgress(workDataOf(KEY_PHASE to PHASE_SAVING, KEY_SONGS_TOTAL to audioFiles.size, KEY_SONGS_SAVED to songsSaved))
             }
         }
 
         // Flush remainder
         if (songs.isNotEmpty()) {
+            songsSaved += songs.size
             flushBatch(songs, albumMap, artistMap)
         }
+        setProgress(workDataOf(KEY_PHASE to PHASE_SAVING, KEY_SONGS_TOTAL to audioFiles.size, KEY_SONGS_SAVED to songsSaved))
     }
 
     private suspend fun flushBatch(
@@ -274,27 +311,85 @@ class SdCardScanWorker @AssistedInject constructor(
     }
 
     // ── SAF tree walker ───────────────────────────────────────────────────
+    //
+    // DocumentFile.listFiles() only fetches child document IDs in bulk; every
+    // subsequent access to .name/.type/.isDirectory/.length()/.lastModified()
+    // on the returned DocumentFile is its own individual ContentResolver round
+    // trip to the SD card's DocumentsProvider. For a library with tens of
+    // thousands of files that was thousands of extra binder calls per file.
+    // Querying DocumentsContract directly with a full column projection gets
+    // every child's complete metadata for a directory in one query instead.
+    private val childProjection = arrayOf(
+        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+        DocumentsContract.Document.COLUMN_MIME_TYPE,
+        DocumentsContract.Document.COLUMN_SIZE,
+        DocumentsContract.Document.COLUMN_LAST_MODIFIED
+    )
 
-    private fun collectAudioFiles(dir: DocumentFile, result: MutableList<DocumentFile>) {
-        // Optimized: Instead of deep recursive walk for every scan, 
-        // we list only the current directory if we just want to scan a specific folder,
-        // or we use a more efficient approach.
-        dir.listFiles().forEach { file ->
-            if (file.isFile && isAudioFile(file)) {
-                result.add(file)
-            } else if (file.isDirectory) {
-                // For subfolders, we only recurse if it's not a massive operation
-                // or we could limit depth. For now, let's keep recursion but 
-                // ensure we aren't doing redundant work.
-                collectAudioFiles(file, result)
-            }
+    // Walks the tree with up to SCAN_CONCURRENCY directory queries in flight
+    // at once. Each call returns its own list rather than appending to a
+    // shared collection, so sibling directories can be walked concurrently
+    // with no locking. The semaphore only gates the query itself — it's
+    // released before recursing, so it bounds concurrent SAF round trips
+    // without limiting how many directories can be *waiting* on one.
+    private suspend fun collectAudioFiles(
+        treeUri: Uri,
+        parentDocumentId: String,
+        semaphore: Semaphore
+    ): List<SafEntry> {
+        val (files, subDirIds) = semaphore.withPermit {
+            queryChildren(treeUri, parentDocumentId)
+        }
+        foldersScanned.incrementAndGet()
+        if (files.isNotEmpty()) songsFound.addAndGet(files.size)
+
+        if (subDirIds.isEmpty()) return files
+
+        return coroutineScope {
+            val childLists = subDirIds.map { id -> async { collectAudioFiles(treeUri, id, semaphore) } }
+            files + childLists.awaitAll().flatten()
         }
     }
 
-    private fun isAudioFile(file: DocumentFile): Boolean {
-        val mime = file.type ?: return false
+    private fun queryChildren(treeUri: Uri, parentDocumentId: String): Pair<List<SafEntry>, List<String>> {
+        val resolver = applicationContext.contentResolver
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
+        val files = mutableListOf<SafEntry>()
+        val subDirIds = mutableListOf<String>()
+
+        resolver.query(childrenUri, childProjection, null, null, null)?.use { c ->
+            val idCol   = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameCol = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val mimeCol = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val sizeCol = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+            val modCol  = c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+
+            while (c.moveToNext()) {
+                val docId = c.getString(idCol) ?: continue
+                val mime  = c.getString(mimeCol) ?: ""
+                val name  = c.getString(nameCol) ?: continue
+
+                if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    subDirIds.add(docId)
+                } else if (isAudioMime(mime, name)) {
+                    files.add(
+                        SafEntry(
+                            uri          = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId),
+                            name         = name,
+                            size         = c.getLong(sizeCol),
+                            lastModified = c.getLong(modCol)
+                        )
+                    )
+                }
+            }
+        }
+        return files to subDirIds
+    }
+
+    private fun isAudioMime(mime: String, name: String): Boolean {
         if (mime.startsWith("audio/")) return true
-        val ext = file.name?.substringAfterLast(".")?.lowercase() ?: return false
+        val ext = name.substringAfterLast(".", "").lowercase()
         return ext in setOf("mp3", "flac", "ogg", "opus", "m4a", "aac", "wav", "wma", "aiff")
     }
 
@@ -345,11 +440,23 @@ class SdCardScanWorker @AssistedInject constructor(
     }
 
     companion object {
-        const val KEY_URI    = "tree_uri"
-        const val WORK_NAME  = "sd_card_scan"
+        const val KEY_URI = "tree_uri"
+        const val TAG = "sd_card_scan_tag"
+        private const val WORK_NAME_PREFIX = "sd_card_scan_"
+
+        const val KEY_PHASE           = "phase"
+        const val PHASE_SCANNING      = "scanning"
+        const val PHASE_SAVING        = "saving"
+        const val KEY_FOLDERS_SCANNED = "folders_scanned"
+        const val KEY_SONGS_FOUND     = "songs_found"
+        const val KEY_SONGS_SAVED     = "songs_saved"
+        const val KEY_SONGS_TOTAL     = "songs_total"
+
+        private const val SCAN_CONCURRENCY     = 6
+        private const val PROGRESS_INTERVAL_MS = 300L
+        private const val SAVE_BATCH_SIZE      = 2000
 
         fun enqueue(workManager: WorkManager, treeUri: Uri) {
-            android.util.Log.d("SdCardScanWorker", "Enqueuing scan for: $treeUri")
             val data    = workDataOf(KEY_URI to treeUri.toString())
             val request = OneTimeWorkRequestBuilder<SdCardScanWorker>()
                 .setInputData(data)
@@ -358,15 +465,24 @@ class SdCardScanWorker @AssistedInject constructor(
                         .setRequiresBatteryNotLow(false)
                         .build()
                 )
-                .addTag("sd_card_scan_tag")
+                .addTag(TAG)
                 .build()
-            
-            val operation = workManager.enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
-            operation.state.observeForever { state ->
-                android.util.Log.d("SdCardScanWorker", "Enqueue operation state: $state")
-            }
+
+            // Unique per folder rather than per app: with a single shared
+            // name, scanning several watched folders (e.g. via "Rescan All")
+            // meant each new enqueue replaced — and silently cancelled —
+            // whichever folder's scan was still running.
+            val workName = WORK_NAME_PREFIX + treeUri.toString().hashCode()
+            workManager.enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, request)
         }
     }
+
+    private data class SafEntry(
+        val uri: Uri,
+        val name: String,
+        val size: Long,
+        val lastModified: Long
+    )
 
     private data class MediaStoreRow(
         val id: Long,

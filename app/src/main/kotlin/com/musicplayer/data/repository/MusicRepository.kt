@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.room.withTransaction
 import com.musicplayer.data.local.MusicDatabase
 import com.musicplayer.data.local.entities.*
 import com.musicplayer.data.local.toDomain
@@ -119,9 +120,14 @@ class MusicRepository @Inject constructor(
         albums: List<com.musicplayer.data.local.entities.AlbumEntity>,
         artists: List<com.musicplayer.data.local.entities.ArtistEntity>
     ) {
-        db.songDao().insertSongs(songs)
-        db.albumDao().insertAlbums(albums)
-        db.artistDao().insertArtists(artists)
+        // One transaction instead of three separate ones — each transaction
+        // commit is a WAL fsync, so batching a scan's inserts into a single
+        // commit cuts that overhead by 3x per batch.
+        db.withTransaction {
+            db.songDao().insertSongs(songs)
+            db.albumDao().insertAlbums(albums)
+            db.artistDao().insertArtists(artists)
+        }
     }
 
     // ── Playback state ────────────────────────────────────────────────────
@@ -267,9 +273,11 @@ class MusicRepository @Inject constructor(
         }
 
         // Persist to DB
-        db.songDao().insertSongs(songs)
-        db.albumDao().insertAlbums(finalAlbums)
-        db.artistDao().insertArtists(finalArtists)
+        db.withTransaction {
+            db.songDao().insertSongs(songs)
+            db.albumDao().insertAlbums(finalAlbums)
+            db.artistDao().insertArtists(finalArtists)
+        }
 
         // Clean up deleted files. Deletes are chunked (SQLite caps bound variables at ~999,
         // so a single "id IN (...)" over a large library would otherwise fail outright).
