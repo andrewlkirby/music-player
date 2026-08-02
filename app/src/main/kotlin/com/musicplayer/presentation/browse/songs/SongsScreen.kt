@@ -43,11 +43,12 @@ fun SongsScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
                     Column {
-                        Text("Songs") 
+                        Text("Songs")
                         if (state.totalCount > 0) {
                             Text(
                                 "${state.totalCount} tracks",

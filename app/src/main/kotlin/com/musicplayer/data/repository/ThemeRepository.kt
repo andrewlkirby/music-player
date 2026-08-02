@@ -19,12 +19,16 @@ import javax.inject.Singleton
 data class ThemeUiState(
     val theme: AppTheme = AppTheme.DARK,
     val backgroundPath: String? = null,
-    val surfaceOpacity: Float = 1f
+    val surfaceOpacity: Float = 1f,
+    val backgroundBiasX: Float = 0f,
+    val backgroundBiasY: Float = 0f
 )
 
 private val KEY_THEME = stringPreferencesKey("theme")
 private fun backgroundKey(theme: AppTheme) = stringPreferencesKey("bg_path_${theme.name}")
 private fun opacityKey(theme: AppTheme) = floatPreferencesKey("surface_opacity_${theme.name}")
+private fun biasXKey(theme: AppTheme) = floatPreferencesKey("bg_bias_x_${theme.name}")
+private fun biasYKey(theme: AppTheme) = floatPreferencesKey("bg_bias_y_${theme.name}")
 
 @Singleton
 class ThemeRepository @Inject constructor(
@@ -38,7 +42,9 @@ class ThemeRepository @Inject constructor(
         ThemeUiState(
             theme = theme,
             backgroundPath = prefs[backgroundKey(theme)],
-            surfaceOpacity = prefs[opacityKey(theme)] ?: 1f
+            surfaceOpacity = prefs[opacityKey(theme)] ?: 1f,
+            backgroundBiasX = prefs[biasXKey(theme)] ?: 0f,
+            backgroundBiasY = prefs[biasYKey(theme)] ?: 0f
         )
     }
 
@@ -51,6 +57,13 @@ class ThemeRepository @Inject constructor(
     suspend fun setSurfaceOpacity(theme: AppTheme, opacity: Float) {
         context.settingsDataStore.edit { prefs ->
             prefs[opacityKey(theme)] = opacity.coerceIn(0.2f, 1f)
+        }
+    }
+
+    suspend fun setBackgroundPosition(theme: AppTheme, biasX: Float, biasY: Float) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[biasXKey(theme)] = biasX.coerceIn(-1f, 1f)
+            prefs[biasYKey(theme)] = biasY.coerceIn(-1f, 1f)
         }
     }
 
@@ -69,11 +82,15 @@ class ThemeRepository @Inject constructor(
                 }
                 context.settingsDataStore.edit { prefs ->
                     prefs[backgroundKey(theme)] = file.absolutePath
+                    prefs.remove(biasXKey(theme))
+                    prefs.remove(biasYKey(theme))
                 }
             } else {
                 file.delete()
                 context.settingsDataStore.edit { prefs ->
                     prefs.remove(backgroundKey(theme))
+                    prefs.remove(biasXKey(theme))
+                    prefs.remove(biasYKey(theme))
                 }
             }
         }

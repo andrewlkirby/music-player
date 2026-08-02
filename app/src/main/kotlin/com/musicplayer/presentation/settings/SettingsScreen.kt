@@ -96,6 +96,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { themeRepository.setSurfaceOpacity(theme, opacity) }
     }
 
+    fun setBackgroundPosition(theme: AppTheme, biasX: Float, biasY: Float) {
+        viewModelScope.launch { themeRepository.setBackgroundPosition(theme, biasX, biasY) }
+    }
+
     val watchedFolders: StateFlow<List<Uri>> = context.settingsDataStore.data
         .map { prefs ->
             prefs[KEY_WATCHED_URIS]
@@ -317,6 +321,7 @@ fun SettingsScreen(
     val scanStatus by viewModel.scanStatus.collectAsState()
     val themeState by viewModel.themeState.collectAsState()
     var showConfirmRemove by remember { mutableStateOf<Uri?>(null) }
+    var showPositionPicker by remember { mutableStateOf(false) }
 
     // Once the APK finishes downloading, immediately hand off to the installer
     LaunchedEffect(updateState) {
@@ -338,7 +343,21 @@ fun SettingsScreen(
     ) { uri ->
         if (uri != null) {
             viewModel.setBackgroundImage(themeState.theme, uri)
+            showPositionPicker = true
         }
+    }
+
+    if (showPositionPicker && themeState.backgroundPath != null) {
+        BackgroundPositionPickerDialog(
+            imagePath = themeState.backgroundPath!!,
+            initialBiasX = themeState.backgroundBiasX,
+            initialBiasY = themeState.backgroundBiasY,
+            onDismiss = { showPositionPicker = false },
+            onSave = { biasX, biasY ->
+                viewModel.setBackgroundPosition(themeState.theme, biasX, biasY)
+                showPositionPicker = false
+            }
+        )
     }
 
     // Confirm-remove dialog
@@ -365,6 +384,7 @@ fun SettingsScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
@@ -620,61 +640,70 @@ fun SettingsScreen(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                     )
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surface),
-                            contentAlignment = Alignment.Center
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surface),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (themeState.backgroundPath != null) {
+                                    AsyncImage(
+                                        model = themeState.backgroundPath,
+                                        contentDescription = "Background image preview",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Icon(
+                                        AppIcons.Image,
+                                        null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Background image",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    "For ${themeState.theme.displayName}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (themeState.backgroundPath != null) {
+                                IconButton(onClick = { viewModel.setBackgroundImage(themeState.theme, null) }) {
+                                    Icon(
+                                        AppIcons.Close,
+                                        "Remove background image",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
                         ) {
                             if (themeState.backgroundPath != null) {
-                                AsyncImage(
-                                    model = themeState.backgroundPath,
-                                    contentDescription = "Background image preview",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Icon(
-                                    AppIcons.Image,
-                                    null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                TextButton(onClick = { showPositionPicker = true }) {
+                                    Text("Position")
+                                }
                             }
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Background image",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                "For ${themeState.theme.displayName}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        if (themeState.backgroundPath != null) {
-                            IconButton(onClick = { viewModel.setBackgroundImage(themeState.theme, null) }) {
-                                Icon(
-                                    AppIcons.Close,
-                                    "Remove background image",
-                                    tint = MaterialTheme.colorScheme.error
-                                )
+                            TextButton(
+                                onClick = {
+                                    backgroundImagePickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                }
+                            ) {
+                                Text(if (themeState.backgroundPath != null) "Change" else "Choose")
                             }
-                        }
-                        TextButton(
-                            onClick = {
-                                backgroundImagePickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            }
-                        ) {
-                            Text(if (themeState.backgroundPath != null) "Change" else "Choose")
                         }
                     }
                 }

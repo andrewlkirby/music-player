@@ -131,6 +131,7 @@ fun PlaylistsScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { TopAppBar(title = { Text("Playlists") }) },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreateDialog = true }) {
@@ -269,6 +270,7 @@ fun PlaylistDetailScreen(
     var dragOffset by remember { mutableFloatStateOf(0f) }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text(title) },

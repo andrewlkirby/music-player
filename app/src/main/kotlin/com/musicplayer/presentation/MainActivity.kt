@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -86,6 +87,7 @@ class MainActivity : ComponentActivity() {
                             model = themeState.backgroundPath,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
+                            alignment = BiasAlignment(themeState.backgroundBiasX, themeState.backgroundBiasY),
                             modifier = Modifier.fillMaxSize()
                         )
                         Box(

@@ -96,6 +96,7 @@ fun AlbumsScreen(
     var showSortMenu by remember { mutableStateOf(false) }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text("Albums") },
@@ -204,6 +205,7 @@ fun AlbumDetailScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text(album?.name ?: "Album") },

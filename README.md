@@ -25,6 +25,18 @@ A full-featured Android music player built with Kotlin, Jetpack Compose, Media3/
 
 ---
 
+## Screenshots
+
+| Songs | Albums |
+|---|---|
+| ![Songs list](imgs/songs.png) | ![Albums grid](imgs/albums.png) |
+
+| Now Playing | Themes |
+|---|---|
+| ![Now Playing](imgs/now_playing.png) | ![Theme settings](imgs/settings_themes.png) |
+
+---
+
 ## Quick Install (no build tools required)
 
 The fastest way to get the app on your phone — no Android Studio, no ADB, no command line.
