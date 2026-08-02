@@ -5,10 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material.icons.filled.*
+import com.musicplayer.presentation.theme.AppIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -101,7 +98,7 @@ fun AlbumsScreen(
                 title = { Text("Albums") },
                 actions = {
                     IconButton(onClick = { showSortMenu = true }) {
-                        Icon(Icons.AutoMirrored.Filled.Sort, "Sort")
+                        Icon(AppIcons.Sort, "Sort")
                     }
                     DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                         DropdownMenuItem(text = { Text("Name A-Z") }, onClick = {
@@ -197,7 +194,7 @@ fun AlbumDetailScreen(
                 title = { Text(album?.name ?: "Album") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(AppIcons.ArrowBack, "Back")
                     }
                 }
             )
@@ -235,7 +232,7 @@ fun AlbumDetailScreen(
                         }
                         Spacer(Modifier.height(12.dp))
                         Button(onClick = { playerViewModel.playSongs(songs, 0) }) {
-                            Icon(Icons.Default.PlayArrow, null)
+                            Icon(AppIcons.PlayArrow, null)
                             Spacer(Modifier.width(8.dp))
                             Text("Play All")
                         }

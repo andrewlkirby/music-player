@@ -8,29 +8,33 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import coil.compose.AsyncImage
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import com.musicplayer.presentation.theme.AppIcons
 import com.musicplayer.presentation.theme.MusicPlayerTheme
+import com.musicplayer.presentation.theme.ThemeViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private val playerViewModel: PlayerViewModel by viewModels()
+    private val themeViewModel: ThemeViewModel by viewModels()
 
     @OptIn(ExperimentalPermissionsApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,7 +42,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            MusicPlayerTheme {
+            val themeState by themeViewModel.themeState.collectAsState()
+            val hasBackgroundImage = themeState.backgroundPath != null
+
+            MusicPlayerTheme(appTheme = themeState.theme, backgroundPath = themeState.backgroundPath) {
                 val navController = rememberNavController()
                 val playerState by playerViewModel.uiState.collectAsState()
 
@@ -56,19 +63,37 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val bottomNavItems = listOf(
-                    Triple(Screen.Songs.route, Icons.Default.MusicNote, "Songs"),
-                    Triple(Screen.Albums.route, Icons.Default.Album, "Albums"),
-                    Triple(Screen.Artists.route, Icons.Default.Person, "Artists"),
-                    Triple(Screen.Playlists.route, Icons.AutoMirrored.Filled.QueueMusic, "Lists"),
-                    Triple(Screen.Folders.route, Icons.Default.Folder, "Folders")
+                    Triple(Screen.Songs.route, AppIcons.MusicNote, "Songs"),
+                    Triple(Screen.Albums.route, AppIcons.Album, "Albums"),
+                    Triple(Screen.Artists.route, AppIcons.Person, "Artists"),
+                    Triple(Screen.Playlists.route, AppIcons.QueueMusic, "Lists"),
+                    Triple(Screen.Folders.route, AppIcons.Folder, "Folders")
                 )
 
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
                 val showBottomBar = currentRoute !in listOf(Screen.NowPlaying.route)
 
-                Scaffold(
-                    bottomBar = {
+                val backgroundScrimColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (hasBackgroundImage) {
+                        AsyncImage(
+                            model = themeState.backgroundPath,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(backgroundScrimColor)
+                        )
+                    }
+
+                    Scaffold(
+                        containerColor = if (hasBackgroundImage) Color.Transparent else MaterialTheme.colorScheme.background,
+                        bottomBar = {
                         Column {
                             // Mini player (shown when there's a current song and not on now playing)
                             AnimatedVisibility(
@@ -119,7 +144,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                     // Settings gear at end of bottom bar
                                     NavigationBarItem(
-                                        icon = { Icon(Icons.Default.Settings, "Settings") },
+                                        icon = { Icon(AppIcons.Settings, "Settings") },
                                         label = {
                                             Text(
                                                 "Settings",
@@ -151,6 +176,7 @@ class MainActivity : ComponentActivity() {
                         playerViewModel = playerViewModel,
                         modifier = Modifier.padding(innerPadding)
                     )
+                }
                 }
             }
         }

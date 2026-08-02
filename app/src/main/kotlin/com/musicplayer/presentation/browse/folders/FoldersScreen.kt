@@ -7,10 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material.icons.filled.*
+import com.musicplayer.presentation.theme.AppIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -198,14 +195,14 @@ fun FoldersScreen(
                 navigationIcon = {
                     if (state.currentPath.isNotEmpty()) {
                         IconButton(onClick = { viewModel.navigateUp() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Up")
+                            Icon(AppIcons.ArrowBack, "Up")
                         }
                     }
                 },
                 actions = {
                     if (state.songs.isNotEmpty()) {
                         IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.AutoMirrored.Filled.Sort, "Sort")
+                            Icon(AppIcons.Sort, "Sort")
                         }
                         DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                             DropdownMenuItem(text = { Text("Track Number") }, onClick = {
@@ -233,11 +230,11 @@ fun FoldersScreen(
                 ) {
                     // Root
                     TextButton(onClick = { viewModel.navigateTo("") }) {
-                        Icon(Icons.Default.Home, null, modifier = Modifier.size(16.dp))
+                        Icon(AppIcons.Home, null, modifier = Modifier.size(16.dp))
                     }
                     state.breadcrumbs.forEachIndexed { index, crumb ->
                         Icon(
-                            Icons.Default.ChevronRight,
+                            AppIcons.ChevronRight,
                             null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -265,7 +262,7 @@ fun FoldersScreen(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            Icons.Default.FolderOpen,
+                            AppIcons.FolderOpen,
                             null,
                             modifier = Modifier.size(64.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -287,7 +284,7 @@ fun FoldersScreen(
                             onClick = { playerViewModel.playSongs(state.songs, 0) },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
+                            Icon(AppIcons.PlayArrow, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Play Folder")
                         }
@@ -310,14 +307,14 @@ fun FoldersScreen(
                                 },
                                 leadingContent = {
                                     Icon(
-                                        Icons.Default.Folder,
+                                        AppIcons.Folder,
                                         null,
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(40.dp)
                                     )
                                 },
                                 trailingContent = {
-                                    Icon(Icons.Default.ChevronRight, null)
+                                    Icon(AppIcons.ChevronRight, null)
                                 },
                                 modifier = Modifier.clickable { viewModel.navigateTo(item.fullPath) }
                             )

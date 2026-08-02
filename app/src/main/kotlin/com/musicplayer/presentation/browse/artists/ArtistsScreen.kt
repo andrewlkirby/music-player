@@ -6,9 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import com.musicplayer.presentation.theme.AppIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -97,7 +95,7 @@ fun ArtistsScreen(
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Icon(AppIcons.Person, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                                 }
                             }
                         }
@@ -131,7 +129,7 @@ fun ArtistDetailScreen(
             TopAppBar(
                 title = { Text(artist?.name ?: "Artist") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                    IconButton(onClick = onBack) { Icon(AppIcons.ArrowBack, "Back") }
                 }
             )
         }

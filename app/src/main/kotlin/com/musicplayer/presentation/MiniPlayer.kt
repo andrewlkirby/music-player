@@ -5,8 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,6 +14,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.musicplayer.presentation.theme.AppIcons
 
 @Composable
 fun MiniPlayer(
@@ -87,14 +86,14 @@ fun MiniPlayer(
                 // Controls
                 IconButton(onClick = onPlayPause) {
                     Icon(
-                        imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        imageVector = if (state.isPlaying) AppIcons.Pause else AppIcons.PlayArrow,
                         contentDescription = if (state.isPlaying) "Pause" else "Play",
                         tint = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 IconButton(onClick = onNext) {
                     Icon(
-                        imageVector = Icons.Default.SkipNext,
+                        imageVector = AppIcons.SkipNext,
                         contentDescription = "Next",
                         tint = MaterialTheme.colorScheme.onSurface
                     )

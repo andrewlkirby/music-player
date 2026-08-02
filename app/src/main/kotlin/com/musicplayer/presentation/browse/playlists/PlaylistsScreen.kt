@@ -4,9 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
+import com.musicplayer.presentation.theme.AppIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -120,7 +118,7 @@ fun PlaylistsScreen(
         topBar = { TopAppBar(title = { Text("Playlists") }) },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreateDialog = true }) {
-                Icon(Icons.Default.Add, "New playlist")
+                Icon(AppIcons.Add, "New playlist")
             }
         }
     ) { padding ->
@@ -170,10 +168,10 @@ fun PlaylistListItem(
     onDelete: (() -> Unit)? = null
 ) {
     val icon = when (playlist.type) {
-        PlaylistType.RECENTLY_ADDED -> Icons.Default.AccessTime
-        PlaylistType.MOST_PLAYED -> Icons.AutoMirrored.Filled.TrendingUp
-        PlaylistType.FAVORITES -> Icons.Default.Favorite
-        PlaylistType.USER -> Icons.AutoMirrored.Filled.QueueMusic
+        PlaylistType.RECENTLY_ADDED -> AppIcons.AccessTime
+        PlaylistType.MOST_PLAYED -> AppIcons.TrendingUp
+        PlaylistType.FAVORITES -> AppIcons.Favorite
+        PlaylistType.USER -> AppIcons.QueueMusic
     }
     ListItem(
         headlineContent = { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -183,7 +181,7 @@ fun PlaylistListItem(
         trailingContent = {
             if (onDelete != null) {
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
+                    Icon(AppIcons.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
                 }
             }
         },
@@ -217,12 +215,12 @@ fun PlaylistDetailScreen(
             TopAppBar(
                 title = { Text(title) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                    IconButton(onClick = onBack) { Icon(AppIcons.ArrowBack, "Back") }
                 },
                 actions = {
                     if (songs.isNotEmpty()) {
                         IconButton(onClick = { playerViewModel.playSongs(songs.shuffled(), 0) }) {
-                            Icon(Icons.Default.Shuffle, "Shuffle play")
+                            Icon(AppIcons.Shuffle, "Shuffle play")
                         }
                     }
                 }
@@ -240,7 +238,7 @@ fun PlaylistDetailScreen(
                             onClick = { playerViewModel.playSongs(songs, 0) },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Icon(Icons.Default.PlayArrow, null)
+                            Icon(AppIcons.PlayArrow, null)
                             Spacer(Modifier.width(8.dp))
                             Text("Play All")
                         }

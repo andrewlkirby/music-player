@@ -4,9 +4,7 @@ import android.media.audiofx.Equalizer
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import com.musicplayer.presentation.theme.AppIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -148,7 +146,7 @@ fun EqualizerScreen(
                 title = { Text("Equalizer") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(AppIcons.ArrowBack, "Back")
                     }
                 },
                 actions = {
@@ -163,7 +161,7 @@ fun EqualizerScreen(
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        Icons.Default.ErrorOutline,
+                        AppIcons.ErrorOutline,
                         null,
                         modifier = Modifier.size(64.dp),
                         tint = MaterialTheme.colorScheme.error

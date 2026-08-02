@@ -8,9 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
+import com.musicplayer.presentation.theme.AppIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,18 +53,18 @@ fun NowPlayingScreen(
                 title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.KeyboardArrowDown, "Collapse")
+                        Icon(AppIcons.KeyboardArrowDown, "Collapse")
                     }
                 },
                 actions = {
                     IconButton(onClick = { showQueue = !showQueue }) {
-                        Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue")
+                        Icon(AppIcons.QueueMusic, "Queue")
                     }
                     IconButton(onClick = onEqualizerClick) {
-                        Icon(Icons.Default.Equalizer, "Equalizer")
+                        Icon(AppIcons.Equalizer, "Equalizer")
                     }
                     IconButton(onClick = { showSleepTimerDialog = true }) {
-                        Icon(Icons.Default.Bedtime, "Sleep timer")
+                        Icon(AppIcons.Bedtime, "Sleep timer")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -147,7 +145,7 @@ private fun NowPlayingContent(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Default.MusicNote,
+                        AppIcons.MusicNote,
                         null,
                         modifier = Modifier.size(80.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -188,8 +186,8 @@ private fun NowPlayingContent(
                 enabled = song != null
             ) {
                 Icon(
-                    imageVector = if (song?.isFavorite == true) Icons.Default.Favorite
-                    else Icons.Default.FavoriteBorder,
+                    imageVector = if (song?.isFavorite == true) AppIcons.Favorite
+                    else AppIcons.FavoriteBorder,
                     contentDescription = "Favorite",
                     tint = if (song?.isFavorite == true) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurface
@@ -236,7 +234,7 @@ private fun NowPlayingContent(
             // Shuffle
             IconButton(onClick = onToggleShuffle) {
                 Icon(
-                    Icons.Default.Shuffle,
+                    AppIcons.Shuffle,
                     "Shuffle",
                     tint = if (state.shuffleEnabled) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface
@@ -245,7 +243,7 @@ private fun NowPlayingContent(
 
             // Previous
             IconButton(onClick = onPrevious, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.SkipPrevious, "Previous", modifier = Modifier.size(36.dp))
+                Icon(AppIcons.SkipPrevious, "Previous", modifier = Modifier.size(36.dp))
             }
 
             // Play/Pause
@@ -254,7 +252,7 @@ private fun NowPlayingContent(
                 modifier = Modifier.size(64.dp)
             ) {
                 Icon(
-                    imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    imageVector = if (state.isPlaying) AppIcons.Pause else AppIcons.PlayArrow,
                     contentDescription = if (state.isPlaying) "Pause" else "Play",
                     modifier = Modifier.size(36.dp)
                 )
@@ -262,15 +260,15 @@ private fun NowPlayingContent(
 
             // Next
             IconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.SkipNext, "Next", modifier = Modifier.size(36.dp))
+                Icon(AppIcons.SkipNext, "Next", modifier = Modifier.size(36.dp))
             }
 
             // Repeat
             IconButton(onClick = onToggleRepeat) {
                 Icon(
                     imageVector = when (state.repeatMode) {
-                        RepeatMode.ONE -> Icons.Default.RepeatOne
-                        else -> Icons.Default.Repeat
+                        RepeatMode.ONE -> AppIcons.RepeatOne
+                        else -> AppIcons.Repeat
                     },
                     contentDescription = "Repeat",
                     tint = when (state.repeatMode) {
@@ -304,7 +302,7 @@ private fun QueueView(
                 modifier = Modifier.weight(1f)
             )
             IconButton(onClick = onClose) {
-                Icon(Icons.Default.Close, "Close queue")
+                Icon(AppIcons.Close, "Close queue")
             }
         }
         HorizontalDivider()
@@ -333,7 +331,7 @@ private fun QueueView(
                     leadingContent = {
                         if (isCurrent) {
                             Icon(
-                                Icons.AutoMirrored.Filled.VolumeUp,
+                                AppIcons.VolumeUp,
                                 null,
                                 tint = MaterialTheme.colorScheme.primary
                             )

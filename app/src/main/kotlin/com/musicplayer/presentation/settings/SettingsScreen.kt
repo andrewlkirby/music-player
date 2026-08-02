@@ -5,17 +5,21 @@ import android.net.Uri
 import android.os.Environment
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -24,7 +28,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import coil.compose.AsyncImage
 import com.musicplayer.BuildConfig
+import com.musicplayer.data.repository.ThemeRepository
+import com.musicplayer.data.repository.ThemeUiState
+import com.musicplayer.presentation.theme.AppIcons
+import com.musicplayer.presentation.theme.AppTheme
+import com.musicplayer.presentation.theme.colorSchemeFor
 import com.musicplayer.worker.SdCardScanWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -67,8 +77,20 @@ val KEY_WATCHED_URIS = stringSetPreferencesKey("watched_folder_uris")
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val themeRepository: ThemeRepository
 ) : ViewModel() {
+
+    val themeState: StateFlow<ThemeUiState> = themeRepository.state
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ThemeUiState())
+
+    fun setTheme(theme: AppTheme) {
+        viewModelScope.launch { themeRepository.setTheme(theme) }
+    }
+
+    fun setBackgroundImage(theme: AppTheme, uri: Uri?) {
+        viewModelScope.launch { themeRepository.setBackgroundImage(theme, uri) }
+    }
 
     val watchedFolders: StateFlow<List<Uri>> = context.settingsDataStore.data
         .map { prefs ->
@@ -289,6 +311,7 @@ fun SettingsScreen(
     val folders by viewModel.watchedFolders.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
     val scanStatus by viewModel.scanStatus.collectAsState()
+    val themeState by viewModel.themeState.collectAsState()
     var showConfirmRemove by remember { mutableStateOf<Uri?>(null) }
 
     // Once the APK finishes downloading, immediately hand off to the installer
@@ -302,6 +325,15 @@ fun SettingsScreen(
     ) { uri ->
         if (uri != null) {
             viewModel.addFolder(uri)
+        }
+    }
+
+    // Background image picker for the currently selected theme
+    val backgroundImagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.setBackgroundImage(themeState.theme, uri)
         }
     }
 
@@ -334,7 +366,7 @@ fun SettingsScreen(
                 title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(AppIcons.ArrowBack, "Back")
                     }
                 }
             )
@@ -378,7 +410,7 @@ fun SettingsScreen(
                             onClick = { folderPickerLauncher.launch(null) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(Icons.Default.CreateNewFolder, null)
+                            Icon(AppIcons.CreateNewFolder, null)
                             Spacer(Modifier.width(8.dp))
                             Text("Add Folder")
                         }
@@ -396,7 +428,7 @@ fun SettingsScreen(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
-                                Icons.Default.FolderOff,
+                                AppIcons.FolderOff,
                                 null,
                                 modifier = Modifier.size(40.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -428,7 +460,7 @@ fun SettingsScreen(
                         },
                         leadingContent = {
                             Icon(
-                                Icons.Default.Folder,
+                                AppIcons.Folder,
                                 null,
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -436,7 +468,7 @@ fun SettingsScreen(
                         trailingContent = {
                             IconButton(onClick = { showConfirmRemove = uri }) {
                                 Icon(
-                                    Icons.Default.RemoveCircleOutline,
+                                    AppIcons.RemoveCircleOutline,
                                     "Remove",
                                     tint = MaterialTheme.colorScheme.error
                                 )
@@ -457,7 +489,7 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                     ) {
-                        Icon(Icons.Default.Refresh, null)
+                        Icon(AppIcons.Refresh, null)
                         Spacer(Modifier.width(8.dp))
                         Text("Rescan All Folders")
                     }
@@ -536,6 +568,114 @@ fun SettingsScreen(
                 }
             }
 
+            // ── Section: Theme ──────────────────────────────────────────
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text(
+                    "Theme",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                )
+            }
+
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AppTheme.entries.chunked(2).forEach { rowThemes ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowThemes.forEach { theme ->
+                                ThemeSwatchCard(
+                                    theme = theme,
+                                    selected = theme == themeState.theme,
+                                    onClick = { viewModel.setTheme(theme) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (rowThemes.size < 2) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surface),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (themeState.backgroundPath != null) {
+                                AsyncImage(
+                                    model = themeState.backgroundPath,
+                                    contentDescription = "Background image preview",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(
+                                    AppIcons.Image,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Background image",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                "For ${themeState.theme.displayName}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (themeState.backgroundPath != null) {
+                            IconButton(onClick = { viewModel.setBackgroundImage(themeState.theme, null) }) {
+                                Icon(
+                                    AppIcons.Close,
+                                    "Remove background image",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = {
+                                backgroundImagePickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            }
+                        ) {
+                            Text(if (themeState.backgroundPath != null) "Change" else "Choose")
+                        }
+                    }
+                }
+            }
+
             // ── Section: About ──────────────────────────────────────────
             item {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -551,7 +691,7 @@ fun SettingsScreen(
                     headlineContent = { Text("Music Player") },
                     supportingContent = { Text("Version ${viewModel.currentVersion}") },
                     leadingContent = {
-                        Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(AppIcons.MusicNote, null, tint = MaterialTheme.colorScheme.primary)
                     }
                 )
             }
@@ -565,7 +705,7 @@ fun SettingsScreen(
                                 onClick = { viewModel.checkForUpdate() },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(Icons.Default.SystemUpdate, null)
+                                Icon(AppIcons.SystemUpdate, null)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Get Update")
                             }
@@ -580,7 +720,7 @@ fun SettingsScreen(
                         is UpdateState.UpToDate -> {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Default.CheckCircle,
+                                    AppIcons.CheckCircle,
                                     null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
@@ -594,7 +734,7 @@ fun SettingsScreen(
                                 onClick = { viewModel.downloadUpdate(state.downloadUrl, state.version) },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(Icons.Default.Download, null)
+                                Icon(AppIcons.Download, null)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Update to v${state.version}")
                             }
@@ -637,7 +777,7 @@ fun SettingsScreen(
                         is UpdateState.Error -> {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Default.ErrorOutline,
+                                    AppIcons.ErrorOutline,
                                     null,
                                     tint = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.size(18.dp)
@@ -654,6 +794,51 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeSwatchCard(
+    theme: AppTheme,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scheme = colorSchemeFor(theme)
+    Card(
+        onClick = onClick,
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf(scheme.primary, scheme.secondary, scheme.tertiary).forEach { color ->
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    theme.displayName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                if (selected) {
+                    Icon(
+                        AppIcons.CheckCircle,
+                        null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
         }
