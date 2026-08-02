@@ -1,6 +1,7 @@
 package com.musicplayer.di
 
 import android.content.Context
+import android.media.AudioManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
@@ -74,9 +75,19 @@ object PlayerModule {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
 
-        return ExoPlayer.Builder(context)
+        val player = ExoPlayer.Builder(context)
             .setAudioAttributes(audioAttributes, /* handleAudioFocus= */ true)
             .setHandleAudioBecomingNoisy(true)
             .build()
+
+        // Explicitly assign a real audio session id up front rather than
+        // relying on ExoPlayer to lazily generate one once playback starts.
+        // Equalizer(priority, audioSessionId=0) attaches to the global output
+        // mix, which most device audio HALs reject outright — the Equalizer
+        // screen needs a session tied to this player to work at all.
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        player.audioSessionId = audioManager.generateAudioSessionId()
+
+        return player
     }
 }

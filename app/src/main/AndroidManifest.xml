@@ -28,6 +28,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
+    <!-- Equalizer audio effects -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <!-- Receive media button events -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 

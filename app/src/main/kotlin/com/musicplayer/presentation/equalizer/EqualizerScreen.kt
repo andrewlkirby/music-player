@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.exoplayer.ExoPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,7 +40,9 @@ data class EqBand(
 )
 
 @HiltViewModel
-class EqualizerViewModel @Inject constructor() : ViewModel() {
+class EqualizerViewModel @Inject constructor(
+    private val player: ExoPlayer
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(EqUiState())
     val uiState: StateFlow<EqUiState> = _uiState.asStateFlow()
@@ -52,7 +55,9 @@ class EqualizerViewModel @Inject constructor() : ViewModel() {
 
     private fun initEqualizer() {
         try {
-            val eq = Equalizer(0, 0) // priority=0, audioSession=0 (global)
+            // Attach to the actual player's audio session — session id 0 means
+            // the global output mix, which most device audio HALs reject.
+            val eq = Equalizer(0, player.audioSessionId)
             equalizer = eq
 
             val numBands = eq.numberOfBands
