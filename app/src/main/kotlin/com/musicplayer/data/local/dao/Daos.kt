@@ -60,8 +60,20 @@ interface SongDao {
     @Query("SELECT id FROM songs")
     suspend fun getAllSongIds(): List<Long>
 
+    @Query("SELECT id FROM songs WHERE source = :source")
+    suspend fun getSongIdsBySource(source: String): List<Long>
+
+    @Query("SELECT * FROM songs WHERE id IN (:ids)")
+    suspend fun getSongsByIds(ids: List<Long>): List<SongEntity>
+
     @Query("DELETE FROM songs WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
+
+    // One-time cleanup for songs incorrectly scanned in before SdCardScanWorker
+    // started excluding playlist files (isAudioMime used to trust SAF's
+    // "audio/x-mpegurl" mime for .m3u/.m3u8 as if it were playable audio).
+    @Query("DELETE FROM songs WHERE path LIKE '%.m3u' OR path LIKE '%.m3u8' OR path LIKE '%.pls' OR path LIKE '%.cue'")
+    suspend fun deleteNonAudioPlaylistFiles()
 
     @Query("SELECT lastModified FROM songs WHERE path = :path")
     suspend fun getLastModified(path: String): Long?
@@ -152,4 +164,28 @@ interface PlaybackStateDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun savePlaybackState(state: PlaybackStateEntity)
+
+    // Cheap counterpart to savePlaybackState — updates progress/mode fields
+    // without touching queueJson, so ordinary play/pause and track skips
+    // don't re-encode and rewrite the whole (possibly tens-of-thousands-of-
+    // ids) queue string on every event. Only takes effect once a row exists
+    // (i.e. after the first savePlaybackState call).
+    @Query(
+        """
+        UPDATE playback_state
+        SET currentSongId = :currentSongId,
+            position = :position,
+            shuffleEnabled = :shuffleEnabled,
+            repeatMode = :repeatMode,
+            currentQueueIndex = :currentQueueIndex
+        WHERE id = 1
+        """
+    )
+    suspend fun updatePlaybackProgress(
+        currentSongId: Long?,
+        position: Long,
+        shuffleEnabled: Boolean,
+        repeatMode: String,
+        currentQueueIndex: Int
+    )
 }

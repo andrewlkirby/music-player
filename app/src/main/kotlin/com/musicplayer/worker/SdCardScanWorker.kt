@@ -1,5 +1,6 @@
 package com.musicplayer.worker
 
+import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -9,6 +10,7 @@ import androidx.work.*
 import com.musicplayer.data.local.entities.AlbumEntity
 import com.musicplayer.data.local.entities.ArtistEntity
 import com.musicplayer.data.local.entities.SongEntity
+import com.musicplayer.data.local.entities.SongSource
 import com.musicplayer.data.repository.MusicRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -39,7 +41,10 @@ class SdCardScanWorker @AssistedInject constructor(
         val uriString = inputData.getString(KEY_URI) ?: return Result.failure()
         val treeUri = uriString.toUri()
         return try {
-            withContext(Dispatchers.IO) { scanTreeUri(treeUri) }
+            withContext(Dispatchers.IO) {
+                repository.deleteNonAudioPlaylistFiles()
+                scanTreeUri(treeUri)
+            }
             Result.success()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -187,6 +192,9 @@ class SdCardScanWorker @AssistedInject constructor(
             val dateAdded: Long
             val lastModified: Long
 
+            val artworkPath: String?
+            val source: String
+
             if (msRow != null) {
                 // ✅ Fast path: MediaStore already has this file indexed
                 id           = msRow.id
@@ -202,6 +210,13 @@ class SdCardScanWorker @AssistedInject constructor(
                 dateAdded    = msRow.dateAdded
                 lastModified = msRow.lastModified
                 genre        = ""   // MediaStore doesn't expose genre easily; leave blank
+                artworkPath  = ContentUris.withAppendedId(
+                    Uri.parse("content://media/external/audio/albumart"), albumId
+                ).toString()
+                // Uses MediaStore's own _ID as the primary key, so a later
+                // scanMediaStore() run will find (and correctly refresh or
+                // prune) this exact row — safe to treat as MediaStore-sourced.
+                source       = SongSource.MEDIASTORE
             } else {
                 // 🐢 Slow path: MediaStore missed this file — read tags directly.
                 // This should only happen for a small fraction of files on SD cards
@@ -224,6 +239,12 @@ class SdCardScanWorker @AssistedInject constructor(
                 size         = file.size
                 dateAdded    = file.lastModified
                 lastModified = file.lastModified
+                // No MediaStore albumId on this path, so the legacy albumart
+                // provider URI can't be built — leave art unset.
+                artworkPath  = null
+                // Synthetic id, unknown to MediaStore — scanMediaStore()'s
+                // obsolete-cleanup must never consider this row for deletion.
+                source       = SongSource.SAF
             }
 
             songs.add(
@@ -242,8 +263,9 @@ class SdCardScanWorker @AssistedInject constructor(
                     uriString    = fileUri.toString(),
                     size         = size,
                     dateAdded    = dateAdded,
-                    artworkPath  = null,
-                    lastModified = lastModified
+                    artworkPath  = artworkPath,
+                    lastModified = lastModified,
+                    source       = source
                 )
             )
 
@@ -256,7 +278,7 @@ class SdCardScanWorker @AssistedInject constructor(
                     artistId    = artistId,
                     year        = year,
                     songCount   = 0,
-                    artworkPath = null
+                    artworkPath = artworkPath
                 )
             }
 
@@ -387,9 +409,17 @@ class SdCardScanWorker @AssistedInject constructor(
         return files to subDirIds
     }
 
+    // Android's MimeTypeMap reports playlist files (.m3u/.m3u8/.pls) as
+    // "audio/x-mpegurl" etc. — they'd otherwise pass the mime.startsWith
+    // ("audio/") check below and get scanned in as if they were songs, even
+    // though they aren't playable media. Excluded regardless of reported
+    // mime type.
+    private val nonAudioExtensions = setOf("m3u", "m3u8", "pls", "cue")
+
     private fun isAudioMime(mime: String, name: String): Boolean {
-        if (mime.startsWith("audio/")) return true
         val ext = name.substringAfterLast(".", "").lowercase()
+        if (ext in nonAudioExtensions) return false
+        if (mime.startsWith("audio/")) return true
         return ext in setOf("mp3", "flac", "ogg", "opus", "m4a", "aac", "wav", "wma", "aiff")
     }
 

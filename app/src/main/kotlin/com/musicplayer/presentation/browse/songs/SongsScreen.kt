@@ -11,10 +11,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.musicplayer.domain.model.Song
 import com.musicplayer.domain.model.SortOrder
 import com.musicplayer.presentation.PlayerViewModel
@@ -118,8 +120,15 @@ fun SongListItem(
             )
         },
         leadingContent = {
+            // Explicit small decode size — a 30k-song list flinging through
+            // full-resolution art (some source JPEGs are 1000px+) wastes
+            // decode work the 48dp slot never uses.
             AsyncImage(
-                model = song.artworkUri,
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(song.artworkUri)
+                    .size(160)
+                    .crossfade(false)
+                    .build(),
                 contentDescription = null,
                 modifier = Modifier
                     .size(48.dp)

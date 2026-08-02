@@ -12,12 +12,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.musicplayer.data.repository.MusicRepository
 import com.musicplayer.domain.model.Album
 import com.musicplayer.domain.model.Song
@@ -139,8 +141,15 @@ fun AlbumGridCard(album: Album, onClick: () -> Unit) {
         shape = MaterialTheme.shapes.medium
     ) {
         Column {
+            // Explicit decode size caps cost across a large grid — cells are
+            // ~160dp, so 480px covers up to ~3x density without decoding
+            // full-resolution source art for every tile on screen.
             AsyncImage(
-                model = album.artworkUri,
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(album.artworkUri)
+                    .size(480)
+                    .crossfade(false)
+                    .build(),
                 contentDescription = album.name,
                 modifier = Modifier
                     .fillMaxWidth()

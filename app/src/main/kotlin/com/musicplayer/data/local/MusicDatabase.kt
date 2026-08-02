@@ -14,7 +14,7 @@ import com.musicplayer.data.local.entities.*
         PlaylistSongEntity::class,
         PlaybackStateEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class MusicDatabase : RoomDatabase() {

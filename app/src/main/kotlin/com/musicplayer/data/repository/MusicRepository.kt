@@ -55,8 +55,21 @@ class MusicRepository @Inject constructor(
     suspend fun getSongById(id: Long): Song? =
         db.songDao().getSongById(id)?.toDomain()
 
+    // Bulk, order-preserving lookup — used to resolve a whole restored
+    // queue (potentially tens of thousands of ids) in a handful of indexed
+    // "IN" queries instead of one round trip per song.
+    suspend fun getSongsByIds(ids: List<Long>): List<Song> = withContext(Dispatchers.Default) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        val rows = ids.chunked(900).flatMap { chunk -> db.songDao().getSongsByIds(chunk) }
+        val byId = rows.associateBy { it.id }
+        ids.mapNotNull { byId[it]?.toDomain() }
+    }
+
     suspend fun incrementPlayCount(songId: Long) =
         db.songDao().incrementPlayCount(songId)
+
+    suspend fun deleteNonAudioPlaylistFiles() =
+        db.songDao().deleteNonAudioPlaylistFiles()
 
     suspend fun setFavorite(songId: Long, isFavorite: Boolean) =
         db.songDao().setFavorite(songId, isFavorite)
@@ -145,6 +158,16 @@ class MusicRepository @Inject constructor(
     // ── Playback state ────────────────────────────────────────────────────
     suspend fun savePlaybackState(state: PlaybackStateEntity) =
         db.playbackStateDao().savePlaybackState(state)
+
+    suspend fun updatePlaybackProgress(
+        currentSongId: Long?,
+        position: Long,
+        shuffleEnabled: Boolean,
+        repeatMode: String,
+        currentQueueIndex: Int
+    ) = db.playbackStateDao().updatePlaybackProgress(
+        currentSongId, position, shuffleEnabled, repeatMode, currentQueueIndex
+    )
 
     suspend fun getPlaybackState(): PlaybackStateEntity? =
         db.playbackStateDao().getPlaybackState()
@@ -237,7 +260,8 @@ class MusicRepository @Inject constructor(
                     size = c.getLong(sizeCol),
                     dateAdded = c.getLong(dateAddedCol),
                     artworkPath = tagData?.embeddedArtPath ?: artworkUri,
-                    lastModified = lastModified
+                    lastModified = lastModified,
+                    source = SongSource.MEDIASTORE
                 )
 
                 songs.add(songEntity)
@@ -293,8 +317,13 @@ class MusicRepository @Inject constructor(
 
         // Clean up deleted files. Deletes are chunked (SQLite caps bound variables at ~999,
         // so a single "id IN (...)" over a large library would otherwise fail outright).
-        val existingIds = db.songDao().getAllSongIds()
-        val obsoleteIds = existingIds - validIds.toSet()
+        //
+        // Scoped to source=MEDIASTORE only: diffing against the whole songs
+        // table would also delete SAF/SD-card songs that were never in
+        // MediaStore's index to begin with (they legitimately don't appear
+        // in validIds, but that doesn't mean they're gone from disk).
+        val existingMediaStoreIds = db.songDao().getSongIdsBySource(SongSource.MEDIASTORE)
+        val obsoleteIds = existingMediaStoreIds - validIds.toSet()
         obsoleteIds.chunked(900).forEach { chunk ->
             db.songDao().deleteByIds(chunk)
         }

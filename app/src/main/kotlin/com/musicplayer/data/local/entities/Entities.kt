@@ -5,11 +5,20 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+// Which scan pipeline a song row came from. scanMediaStore()'s obsolete-row
+// cleanup diffs against MediaStore's own index — without this, it can't
+// tell a MediaStore song that's genuinely gone from a SAF/SD-card song that
+// was never in MediaStore to begin with, and deletes the latter too.
+object SongSource {
+    const val MEDIASTORE = "mediastore"
+    const val SAF = "saf"
+}
+
 @Entity(
     tableName = "songs",
     indices = [
         Index("albumId"), Index("artistId"), Index("path"),
-        Index("isFavorite"), Index("dateAdded"), Index("playCount")
+        Index("isFavorite"), Index("dateAdded"), Index("playCount"), Index("source")
     ]
 )
 data class SongEntity(
@@ -30,7 +39,8 @@ data class SongEntity(
     val playCount: Int = 0,
     val isFavorite: Boolean = false,
     val artworkPath: String? = null,
-    val lastModified: Long = 0L
+    val lastModified: Long = 0L,
+    val source: String = SongSource.MEDIASTORE
 )
 
 @Entity(

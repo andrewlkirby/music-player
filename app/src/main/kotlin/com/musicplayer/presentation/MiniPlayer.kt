@@ -11,9 +11,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.musicplayer.presentation.theme.AppIcons
 
 @Composable
@@ -54,7 +56,11 @@ fun MiniPlayer(
             ) {
                 // Album art
                 AsyncImage(
-                    model = song.artworkUri,
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(song.artworkUri)
+                        .size(160)
+                        .crossfade(false)
+                        .build(),
                     contentDescription = "Album art",
                     modifier = Modifier
                         .size(44.dp)
