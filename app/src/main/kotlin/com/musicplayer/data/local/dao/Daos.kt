@@ -154,6 +154,16 @@ interface PlaylistDao {
 
     @Query("SELECT COUNT(*) FROM playlist_songs WHERE playlistId = :playlistId")
     suspend fun getPlaylistSongCount(playlistId: Long): Int
+
+    @Query("UPDATE playlist_songs SET position = :position WHERE playlistId = :playlistId AND songId = :songId")
+    suspend fun updateSongPosition(playlistId: Long, songId: Long, position: Int)
+
+    @Transaction
+    suspend fun reorderSongs(playlistId: Long, orderedSongIds: List<Long>) {
+        orderedSongIds.forEachIndexed { index, songId ->
+            updateSongPosition(playlistId, songId, index)
+        }
+    }
 }
 
 @Dao

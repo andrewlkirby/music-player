@@ -1,9 +1,11 @@
 package com.musicplayer.presentation.browse.songs
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
 import com.musicplayer.presentation.theme.AppIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,9 +32,14 @@ fun SongsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var showSortMenu by remember { mutableStateOf(false) }
+    var songForPlaylist by remember { mutableStateOf<Song?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.refresh()
+    }
+
+    songForPlaylist?.let { song ->
+        AddToPlaylistSheet(songId = song.id, onDismiss = { songForPlaylist = null })
     }
 
     Scaffold(
@@ -87,7 +94,8 @@ fun SongsScreen(
                 itemsIndexed(state.songs, key = { _, song -> song.id }) { index, song ->
                     SongListItem(
                         song = song,
-                        onClick = { playerViewModel.playSongs(state.songs, index) }
+                        onClick = { playerViewModel.playSongs(state.songs, index) },
+                        onLongClick = { songForPlaylist = song }
                     )
                 }
             }
@@ -95,12 +103,14 @@ fun SongsScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SongListItem(
     song: Song,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    showTrackNumber: Boolean = false
+    showTrackNumber: Boolean = false,
+    onLongClick: (() -> Unit)? = null
 ) {
     ListItem(
         headlineContent = {
@@ -143,7 +153,7 @@ fun SongListItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         },
-        modifier = modifier.clickable(onClick = onClick)
+        modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
     )
     HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
 }

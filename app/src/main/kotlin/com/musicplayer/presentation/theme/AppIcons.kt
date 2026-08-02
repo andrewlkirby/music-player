@@ -306,4 +306,18 @@ object AppIcons {
         IconStyle.ROUNDED -> Icons.AutoMirrored.Rounded.TrendingUp
         IconStyle.SHARP -> Icons.AutoMirrored.Sharp.TrendingUp
     }
+
+    val PlaylistAdd: ImageVector @Composable get() = when (LocalIconStyle.current) {
+        IconStyle.FILLED -> Icons.AutoMirrored.Filled.PlaylistAdd
+        IconStyle.OUTLINED -> Icons.AutoMirrored.Outlined.PlaylistAdd
+        IconStyle.ROUNDED -> Icons.AutoMirrored.Rounded.PlaylistAdd
+        IconStyle.SHARP -> Icons.AutoMirrored.Sharp.PlaylistAdd
+    }
+
+    val DragHandle: ImageVector @Composable get() = when (LocalIconStyle.current) {
+        IconStyle.FILLED -> Icons.Filled.DragHandle
+        IconStyle.OUTLINED -> Icons.Outlined.DragHandle
+        IconStyle.ROUNDED -> Icons.Rounded.DragHandle
+        IconStyle.SHARP -> Icons.Sharp.DragHandle
+    }
 }

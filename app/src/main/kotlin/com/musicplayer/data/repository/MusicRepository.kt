@@ -120,6 +120,9 @@ class MusicRepository @Inject constructor(
     suspend fun removeSongFromPlaylist(playlistId: Long, songId: Long) =
         db.playlistDao().removeSongFromPlaylist(playlistId, songId)
 
+    suspend fun reorderPlaylistSongs(playlistId: Long, orderedSongIds: List<Long>) =
+        db.playlistDao().reorderSongs(playlistId, orderedSongIds)
+
     // ── Folders ───────────────────────────────────────────────────────────
     suspend fun getAllFolderPaths(): List<String> =
         db.songDao().getAllFolderPaths()

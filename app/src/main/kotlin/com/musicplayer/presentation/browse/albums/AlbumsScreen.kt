@@ -25,6 +25,7 @@ import com.musicplayer.domain.model.Album
 import com.musicplayer.domain.model.Song
 import com.musicplayer.domain.model.SortOrder
 import com.musicplayer.presentation.PlayerViewModel
+import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
 import com.musicplayer.presentation.browse.songs.SongListItem
 import com.musicplayer.presentation.browse.songs.formatDuration
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -196,6 +197,11 @@ fun AlbumDetailScreen(
 
     val album by viewModel.album.collectAsState()
     val songs by viewModel.songs.collectAsState()
+    var songForPlaylist by remember { mutableStateOf<Song?>(null) }
+
+    songForPlaylist?.let { song ->
+        AddToPlaylistSheet(songId = song.id, onDismiss = { songForPlaylist = null })
+    }
 
     Scaffold(
         topBar = {
@@ -253,7 +259,8 @@ fun AlbumDetailScreen(
             itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
                 SongListItem(
                     song = song,
-                    onClick = { playerViewModel.playSongs(songs, index) }
+                    onClick = { playerViewModel.playSongs(songs, index) },
+                    onLongClick = { songForPlaylist = song }
                 )
             }
         }

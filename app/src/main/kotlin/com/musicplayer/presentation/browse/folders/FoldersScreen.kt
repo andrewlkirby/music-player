@@ -20,6 +20,7 @@ import androidx.lifecycle.viewModelScope
 import com.musicplayer.data.repository.MusicRepository
 import com.musicplayer.domain.model.Song
 import com.musicplayer.presentation.PlayerViewModel
+import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
 import com.musicplayer.presentation.browse.songs.SongListItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -183,9 +184,14 @@ fun FoldersScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var showSortMenu by remember { mutableStateOf(false) }
+    var songForPlaylist by remember { mutableStateOf<Song?>(null) }
 
     BackHandler(enabled = state.currentPath.isNotEmpty()) {
         viewModel.navigateUp()
+    }
+
+    songForPlaylist?.let { song ->
+        AddToPlaylistSheet(songId = song.id, onDismiss = { songForPlaylist = null })
     }
 
     Scaffold(
@@ -326,7 +332,8 @@ fun FoldersScreen(
                                 SongListItem(
                                     song = song,
                                     onClick = { playerViewModel.playSongs(state.songs, songIndex) },
-                                    showTrackNumber = true
+                                    showTrackNumber = true,
+                                    onLongClick = { songForPlaylist = song }
                                 )
                             }
                         }

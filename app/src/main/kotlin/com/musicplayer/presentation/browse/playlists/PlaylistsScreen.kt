@@ -1,19 +1,31 @@
 package com.musicplayer.presentation.browse.playlists
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import com.musicplayer.presentation.theme.AppIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.musicplayer.data.repository.MusicRepository
 import com.musicplayer.domain.model.Playlist
 import com.musicplayer.domain.model.PlaylistType
@@ -72,6 +84,10 @@ class PlaylistDetailViewModel @Inject constructor(
 
     fun removeSong(playlistId: Long, songId: Long) {
         viewModelScope.launch { repository.removeSongFromPlaylist(playlistId, songId) }
+    }
+
+    fun reorderSongs(playlistId: Long, orderedSongIds: List<Long>) {
+        viewModelScope.launch { repository.reorderPlaylistSongs(playlistId, orderedSongIds) }
     }
 }
 
@@ -203,12 +219,54 @@ fun PlaylistDetailScreen(
     LaunchedEffect(playlistId) { viewModel.setPlaylistId(playlistId) }
 
     val songs by viewModel.songs.collectAsState()
+    val isUserPlaylist = playlistId > 0
     val title = when (playlistId) {
         -1L -> "Recently Added"
         -2L -> "Most Played"
         -3L -> "Favorites"
         else -> "Playlist"
     }
+
+    // Reorderable local copy — kept in sync with the DB-backed flow, except
+    // mid-drag where it temporarily leads the flow until the drop is persisted.
+    var orderedSongs by remember(playlistId) { mutableStateOf(songs) }
+    LaunchedEffect(songs) { orderedSongs = songs }
+
+    var songForPlaylist by remember { mutableStateOf<Song?>(null) }
+    var songForAction by remember { mutableStateOf<Song?>(null) }
+
+    songForPlaylist?.let { song ->
+        AddToPlaylistSheet(songId = song.id, onDismiss = { songForPlaylist = null })
+    }
+
+    songForAction?.let { song ->
+        ModalBottomSheet(onDismissRequest = { songForAction = null }) {
+            Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                ListItem(
+                    headlineContent = { Text("Add to Another Playlist") },
+                    leadingContent = { Icon(AppIcons.PlaylistAdd, null) },
+                    modifier = Modifier.clickable {
+                        songForPlaylist = song
+                        songForAction = null
+                    }
+                )
+                ListItem(
+                    headlineContent = { Text("Remove from This Playlist") },
+                    leadingContent = {
+                        Icon(AppIcons.Delete, null, tint = MaterialTheme.colorScheme.error)
+                    },
+                    modifier = Modifier.clickable {
+                        viewModel.removeSong(playlistId, song.id)
+                        songForAction = null
+                    }
+                )
+            }
+        }
+    }
+
+    val listState = rememberLazyListState()
+    var draggingIndex by remember { mutableStateOf<Int?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
 
     Scaffold(
         topBar = {
@@ -218,8 +276,8 @@ fun PlaylistDetailScreen(
                     IconButton(onClick = onBack) { Icon(AppIcons.ArrowBack, "Back") }
                 },
                 actions = {
-                    if (songs.isNotEmpty()) {
-                        IconButton(onClick = { playerViewModel.playSongs(songs.shuffled(), 0) }) {
+                    if (orderedSongs.isNotEmpty()) {
+                        IconButton(onClick = { playerViewModel.playSongs(orderedSongs.shuffled(), 0) }) {
                             Icon(AppIcons.Shuffle, "Shuffle play")
                         }
                     }
@@ -227,15 +285,15 @@ fun PlaylistDetailScreen(
             )
         }
     ) { padding ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (songs.isNotEmpty()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding)) {
+            if (orderedSongs.isNotEmpty()) {
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Button(
-                            onClick = { playerViewModel.playSongs(songs, 0) },
+                            onClick = { playerViewModel.playSongs(orderedSongs, 0) },
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(AppIcons.PlayArrow, null)
@@ -246,12 +304,114 @@ fun PlaylistDetailScreen(
                 }
             }
 
-            itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
-                SongListItem(
-                    song = song,
-                    onClick = { playerViewModel.playSongs(songs, index) }
-                )
+            itemsIndexed(orderedSongs, key = { _, s -> s.id }) { index, song ->
+                if (isUserPlaylist) {
+                    ReorderableSongRow(
+                        song = song,
+                        isDragging = draggingIndex == index,
+                        dragOffsetY = if (draggingIndex == index) dragOffset else 0f,
+                        onClick = { playerViewModel.playSongs(orderedSongs, index) },
+                        onLongClick = { songForAction = song },
+                        onDragStart = { draggingIndex = index; dragOffset = 0f },
+                        onDrag = { deltaY ->
+                            val current = draggingIndex
+                            val itemHeight = listState.layoutInfo.visibleItemsInfo
+                                .find { it.key == song.id }?.size?.toFloat()
+                            if (current != null && itemHeight != null) {
+                                dragOffset += deltaY
+                                val moveBy = (dragOffset / itemHeight).toInt()
+                                if (moveBy != 0) {
+                                    val target = (current + moveBy).coerceIn(0, orderedSongs.lastIndex)
+                                    if (target != current) {
+                                        orderedSongs = orderedSongs.toMutableList().apply {
+                                            add(target, removeAt(current))
+                                        }
+                                        dragOffset -= moveBy * itemHeight
+                                        draggingIndex = target
+                                    }
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            draggingIndex = null
+                            dragOffset = 0f
+                            viewModel.reorderSongs(playlistId, orderedSongs.map { it.id })
+                        },
+                        modifier = Modifier.animateItem()
+                    )
+                } else {
+                    SongListItem(
+                        song = song,
+                        onClick = { playerViewModel.playSongs(orderedSongs, index) },
+                        onLongClick = { songForPlaylist = song }
+                    )
+                }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ReorderableSongRow(
+    song: Song,
+    isDragging: Boolean,
+    dragOffsetY: Float,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .graphicsLayer { translationY = dragOffsetY }
+            .zIndex(if (isDragging) 1f else 0f)
+    ) {
+        ListItem(
+            headlineContent = { Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            supportingContent = {
+                Text(
+                    "${song.artist} • ${song.album}",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            leadingContent = {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(song.artworkUri)
+                        .size(160)
+                        .crossfade(false)
+                        .build(),
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp).clip(MaterialTheme.shapes.small),
+                    contentScale = ContentScale.Crop
+                )
+            },
+            trailingContent = {
+                Icon(
+                    AppIcons.DragHandle,
+                    contentDescription = "Drag to reorder",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.pointerInput(song.id) {
+                        detectDragGestures(
+                            onDragStart = { onDragStart() },
+                            onDragEnd = { onDragEnd() },
+                            onDragCancel = { onDragEnd() },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                onDrag(dragAmount.y)
+                            }
+                        )
+                    }
+                )
+            },
+            tonalElevation = if (isDragging) 4.dp else 0.dp,
+            modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+        )
+        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
     }
 }

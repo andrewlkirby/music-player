@@ -21,6 +21,7 @@ import androidx.lifecycle.viewModelScope
 import com.musicplayer.data.repository.MusicRepository
 import com.musicplayer.domain.model.Song
 import com.musicplayer.presentation.PlayerViewModel
+import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
 import com.musicplayer.presentation.browse.songs.SongListItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -71,9 +72,14 @@ fun SearchScreen(
     val localQuery = remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    var songForPlaylist by remember { mutableStateOf<Song?>(null) }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
+    }
+
+    songForPlaylist?.let { song ->
+        AddToPlaylistSheet(songId = song.id, onDismiss = { songForPlaylist = null })
     }
 
     Scaffold(
@@ -171,7 +177,8 @@ fun SearchScreen(
                             itemsIndexed(state.results, key = { _, s -> s.id }) { index, song ->
                                 SongListItem(
                                     song = song,
-                                    onClick = { playerViewModel.playSongs(state.results, index) }
+                                    onClick = { playerViewModel.playSongs(state.results, index) },
+                                    onLongClick = { songForPlaylist = song }
                                 )
                             }
                         }

@@ -24,6 +24,7 @@ import coil.compose.AsyncImage
 import com.musicplayer.domain.model.RepeatMode
 import com.musicplayer.presentation.PlayerUiState
 import com.musicplayer.presentation.PlayerViewModel
+import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
 import com.musicplayer.presentation.browse.songs.formatDuration
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,6 +37,13 @@ fun NowPlayingScreen(
     val state by playerViewModel.uiState.collectAsState()
     var showQueue by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
+    var showAddToPlaylist by remember { mutableStateOf(false) }
+
+    if (showAddToPlaylist) {
+        state.currentSong?.let { song ->
+            AddToPlaylistSheet(songId = song.id, onDismiss = { showAddToPlaylist = false })
+        }
+    }
 
     if (showSleepTimerDialog) {
         SleepTimerDialog(
@@ -59,6 +67,12 @@ fun NowPlayingScreen(
                 actions = {
                     IconButton(onClick = { showQueue = !showQueue }) {
                         Icon(AppIcons.QueueMusic, "Queue")
+                    }
+                    IconButton(
+                        onClick = { showAddToPlaylist = true },
+                        enabled = state.currentSong != null
+                    ) {
+                        Icon(AppIcons.PlaylistAdd, "Add to playlist")
                     }
                     IconButton(onClick = onEqualizerClick) {
                         Icon(AppIcons.Equalizer, "Equalizer")

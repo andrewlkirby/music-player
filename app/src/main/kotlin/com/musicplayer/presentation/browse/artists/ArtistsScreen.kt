@@ -25,6 +25,7 @@ import com.musicplayer.domain.model.Artist
 import com.musicplayer.domain.model.Song
 import com.musicplayer.presentation.PlayerViewModel
 import com.musicplayer.presentation.browse.albums.AlbumGridCard
+import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
 import com.musicplayer.presentation.browse.songs.SongListItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -123,6 +124,11 @@ fun ArtistDetailScreen(
     val albums by viewModel.albums.collectAsState()
     val songs by viewModel.songs.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
+    var songForPlaylist by remember { mutableStateOf<Song?>(null) }
+
+    songForPlaylist?.let { song ->
+        AddToPlaylistSheet(songId = song.id, onDismiss = { songForPlaylist = null })
+    }
 
     Scaffold(
         topBar = {
@@ -153,7 +159,11 @@ fun ArtistDetailScreen(
                 }
                 1 -> LazyColumn {
                     itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
-                        SongListItem(song = song, onClick = { playerViewModel.playSongs(songs, index) })
+                        SongListItem(
+                            song = song,
+                            onClick = { playerViewModel.playSongs(songs, index) },
+                            onLongClick = { songForPlaylist = song }
+                        )
                     }
                 }
             }
