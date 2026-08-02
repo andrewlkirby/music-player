@@ -3,6 +3,7 @@ package com.musicplayer.data.repository
 import android.content.Context
 import android.net.Uri
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.musicplayer.presentation.settings.settingsDataStore
 import com.musicplayer.presentation.theme.AppTheme
@@ -17,11 +18,13 @@ import javax.inject.Singleton
 
 data class ThemeUiState(
     val theme: AppTheme = AppTheme.DARK,
-    val backgroundPath: String? = null
+    val backgroundPath: String? = null,
+    val surfaceOpacity: Float = 1f
 )
 
 private val KEY_THEME = stringPreferencesKey("theme")
 private fun backgroundKey(theme: AppTheme) = stringPreferencesKey("bg_path_${theme.name}")
+private fun opacityKey(theme: AppTheme) = floatPreferencesKey("surface_opacity_${theme.name}")
 
 @Singleton
 class ThemeRepository @Inject constructor(
@@ -32,12 +35,22 @@ class ThemeRepository @Inject constructor(
         val theme = prefs[KEY_THEME]?.let { name ->
             AppTheme.entries.find { it.name == name }
         } ?: AppTheme.DARK
-        ThemeUiState(theme = theme, backgroundPath = prefs[backgroundKey(theme)])
+        ThemeUiState(
+            theme = theme,
+            backgroundPath = prefs[backgroundKey(theme)],
+            surfaceOpacity = prefs[opacityKey(theme)] ?: 1f
+        )
     }
 
     suspend fun setTheme(theme: AppTheme) {
         context.settingsDataStore.edit { prefs ->
             prefs[KEY_THEME] = theme.name
+        }
+    }
+
+    suspend fun setSurfaceOpacity(theme: AppTheme, opacity: Float) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[opacityKey(theme)] = opacity.coerceIn(0.2f, 1f)
         }
     }
 

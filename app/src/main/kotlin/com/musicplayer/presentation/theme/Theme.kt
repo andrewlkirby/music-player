@@ -15,14 +15,27 @@ import androidx.core.view.WindowCompat
 fun MusicPlayerTheme(
     appTheme: AppTheme = AppTheme.DARK,
     backgroundPath: String? = null,
+    surfaceOpacity: Float = 1f,
     content: @Composable () -> Unit
 ) {
     val baseScheme = colorSchemeFor(appTheme)
     // When a custom background image is active, punch a transparent hole in
     // `background` so every screen's default Scaffold container reveals the
-    // image; surfaces (app bars, nav bar, cards) stay opaque for legibility.
+    // image, and fade every surface-family color (app bars, nav bar, cards,
+    // dropdowns) by surfaceOpacity so the image shows through them too.
     val colorScheme = if (backgroundPath != null) {
-        baseScheme.copy(background = Color.Transparent)
+        baseScheme.copy(
+            background = Color.Transparent,
+            surface = baseScheme.surface.copy(alpha = surfaceOpacity),
+            surfaceVariant = baseScheme.surfaceVariant.copy(alpha = surfaceOpacity),
+            surfaceContainer = baseScheme.surfaceContainer.copy(alpha = surfaceOpacity),
+            surfaceContainerHigh = baseScheme.surfaceContainerHigh.copy(alpha = surfaceOpacity),
+            surfaceContainerHighest = baseScheme.surfaceContainerHighest.copy(alpha = surfaceOpacity),
+            surfaceContainerLow = baseScheme.surfaceContainerLow.copy(alpha = surfaceOpacity),
+            surfaceContainerLowest = baseScheme.surfaceContainerLowest.copy(alpha = surfaceOpacity),
+            surfaceBright = baseScheme.surfaceBright.copy(alpha = surfaceOpacity),
+            surfaceDim = baseScheme.surfaceDim.copy(alpha = surfaceOpacity)
+        )
     } else {
         baseScheme
     }

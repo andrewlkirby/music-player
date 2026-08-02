@@ -45,7 +45,11 @@ class MainActivity : ComponentActivity() {
             val themeState by themeViewModel.themeState.collectAsState()
             val hasBackgroundImage = themeState.backgroundPath != null
 
-            MusicPlayerTheme(appTheme = themeState.theme, backgroundPath = themeState.backgroundPath) {
+            MusicPlayerTheme(
+                appTheme = themeState.theme,
+                backgroundPath = themeState.backgroundPath,
+                surfaceOpacity = themeState.surfaceOpacity
+            ) {
                 val navController = rememberNavController()
                 val playerState by playerViewModel.uiState.collectAsState()
 

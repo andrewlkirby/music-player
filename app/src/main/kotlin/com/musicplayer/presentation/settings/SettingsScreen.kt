@@ -92,6 +92,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { themeRepository.setBackgroundImage(theme, uri) }
     }
 
+    fun setSurfaceOpacity(theme: AppTheme, opacity: Float) {
+        viewModelScope.launch { themeRepository.setSurfaceOpacity(theme, opacity) }
+    }
+
     val watchedFolders: StateFlow<List<Uri>> = context.settingsDataStore.data
         .map { prefs ->
             prefs[KEY_WATCHED_URIS]
@@ -672,6 +676,35 @@ fun SettingsScreen(
                         ) {
                             Text(if (themeState.backgroundPath != null) "Change" else "Choose")
                         }
+                    }
+                }
+            }
+
+            if (themeState.backgroundPath != null) {
+                item {
+                    var sliderValue by remember(themeState.theme) { mutableStateOf(themeState.surfaceOpacity) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            "Menu transparency",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            "Lower this to see more of the background image through app bars, the nav bar, and menus",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Slider(
+                            value = sliderValue,
+                            onValueChange = { sliderValue = it },
+                            onValueChangeFinished = {
+                                viewModel.setSurfaceOpacity(themeState.theme, sliderValue)
+                            },
+                            valueRange = 0.2f..1f
+                        )
                     }
                 }
             }
