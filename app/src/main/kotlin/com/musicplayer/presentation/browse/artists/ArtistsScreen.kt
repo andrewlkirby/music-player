@@ -1,5 +1,6 @@
 package com.musicplayer.presentation.browse.artists
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,6 +28,7 @@ import com.musicplayer.presentation.PlayerViewModel
 import com.musicplayer.presentation.browse.albums.AlbumGridCard
 import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
 import com.musicplayer.presentation.browse.songs.SongListItem
+import com.musicplayer.presentation.components.SearchableTopAppBar
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -69,42 +71,72 @@ fun ArtistsScreen(
     viewModel: ArtistsViewModel = hiltViewModel()
 ) {
     val artists by viewModel.artists.collectAsState()
+    var isSearching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+
+    val filteredArtists = remember(artists, query) {
+        if (query.isBlank()) artists
+        else artists.filter { it.name.contains(query, ignoreCase = true) }
+    }
+
+    BackHandler(enabled = isSearching) {
+        isSearching = false
+        query = ""
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = { TopAppBar(title = { Text("Artists") }) }
+        topBar = {
+            SearchableTopAppBar(
+                title = { Text("Artists") },
+                isSearching = isSearching,
+                query = query,
+                onQueryChange = { query = it },
+                onSearchToggle = { isSearching = it },
+                placeholder = "Search artists…"
+            )
+        }
     ) { padding ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-            itemsIndexed(artists, key = { _, a -> a.id }) { _, artist ->
-                ListItem(
-                    headlineContent = { Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    supportingContent = {
-                        Text(
-                            "${artist.albumCount} albums • ${artist.songCount} songs",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    leadingContent = {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                shape = CircleShape,
-                                modifier = Modifier.fillMaxSize()
+        if (isSearching && filteredArtists.isEmpty() && query.isNotBlank()) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text(
+                    "No artists match \"$query\"",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+                itemsIndexed(filteredArtists, key = { _, a -> a.id }) { _, artist ->
+                    ListItem(
+                        headlineContent = { Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = {
+                            Text(
+                                "${artist.albumCount} albums • ${artist.songCount} songs",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
+                        leadingContent = {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(AppIcons.Person, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = CircleShape,
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(AppIcons.Person, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    }
                                 }
                             }
-                        }
-                    },
-                    modifier = Modifier.clickable { onArtistClick(artist.id) }
-                )
-                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                        },
+                        modifier = Modifier.clickable { onArtistClick(artist.id) }
+                    )
+                    HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                }
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.musicplayer.presentation.browse.albums
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +29,7 @@ import com.musicplayer.presentation.PlayerViewModel
 import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
 import com.musicplayer.presentation.browse.songs.SongListItem
 import com.musicplayer.presentation.browse.songs.formatDuration
+import com.musicplayer.presentation.components.SearchableTopAppBar
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -94,13 +96,32 @@ fun AlbumsScreen(
 ) {
     val albums by viewModel.albums.collectAsState()
     var showSortMenu by remember { mutableStateOf(false) }
+    var isSearching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+
+    val filteredAlbums = remember(albums, query) {
+        if (query.isBlank()) albums
+        else albums.filter {
+            it.name.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true)
+        }
+    }
+
+    BackHandler(enabled = isSearching) {
+        isSearching = false
+        query = ""
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
+            SearchableTopAppBar(
                 title = { Text("Albums") },
-                actions = {
+                isSearching = isSearching,
+                query = query,
+                onQueryChange = { query = it },
+                onSearchToggle = { isSearching = it },
+                placeholder = "Search albums…",
+                extraActions = {
                     IconButton(onClick = { showSortMenu = true }) {
                         Icon(AppIcons.Sort, "Sort")
                     }
@@ -122,15 +143,24 @@ fun AlbumsScreen(
             )
         }
     ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 160.dp),
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(albums, key = { it.id }) { album ->
-                AlbumGridCard(album = album, onClick = { onAlbumClick(album.id) })
+        if (isSearching && filteredAlbums.isEmpty() && query.isNotBlank()) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text(
+                    "No albums match \"$query\"",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 160.dp),
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(filteredAlbums, key = { it.id }) { album ->
+                    AlbumGridCard(album = album, onClick = { onAlbumClick(album.id) })
+                }
             }
         }
     }

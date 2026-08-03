@@ -22,6 +22,7 @@ import com.musicplayer.domain.model.Song
 import com.musicplayer.presentation.PlayerViewModel
 import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
 import com.musicplayer.presentation.browse.songs.SongListItem
+import com.musicplayer.presentation.components.SearchableTopAppBar
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -185,9 +186,23 @@ fun FoldersScreen(
     val state by viewModel.uiState.collectAsState()
     var showSortMenu by remember { mutableStateOf(false) }
     var songForPlaylist by remember { mutableStateOf<Song?>(null) }
+    var isSearching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+
+    val filteredItems = remember(state.items, query) {
+        if (query.isBlank()) state.items
+        else state.items.filter { it.name.contains(query, ignoreCase = true) }
+    }
 
     BackHandler(enabled = state.currentPath.isNotEmpty()) {
         viewModel.navigateUp()
+    }
+
+    // Registered after the folder-navigation handler above, so while searching
+    // back closes the search first instead of navigating up a folder.
+    BackHandler(enabled = isSearching) {
+        isSearching = false
+        query = ""
     }
 
     songForPlaylist?.let { song ->
@@ -197,8 +212,13 @@ fun FoldersScreen(
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
+            SearchableTopAppBar(
                 title = { Text("Folders") },
+                isSearching = isSearching,
+                query = query,
+                onQueryChange = { query = it },
+                onSearchToggle = { isSearching = it },
+                placeholder = "Search this folder…",
                 navigationIcon = {
                     if (state.currentPath.isNotEmpty()) {
                         IconButton(onClick = { viewModel.navigateUp() }) {
@@ -206,7 +226,7 @@ fun FoldersScreen(
                         }
                     }
                 },
-                actions = {
+                extraActions = {
                     if (state.songs.isNotEmpty()) {
                         IconButton(onClick = { showSortMenu = true }) {
                             Icon(AppIcons.Sort, "Sort")
@@ -278,9 +298,16 @@ fun FoldersScreen(
                         Text("No music files found", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+            } else if (filteredItems.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "No matches for \"$query\" in this folder",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             } else {
                 // Play all button when there are songs
-                if (state.songs.isNotEmpty()) {
+                if (state.songs.isNotEmpty() && !isSearching) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -299,7 +326,7 @@ fun FoldersScreen(
                 }
 
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(state.items, key = { _, item -> item.fullPath }) { _, item ->
+                    itemsIndexed(filteredItems, key = { _, item -> item.fullPath }) { _, item ->
                         if (item.isDirectory) {
                             // Folder row
                             ListItem(
