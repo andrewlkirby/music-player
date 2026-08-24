@@ -27,6 +27,7 @@ import com.musicplayer.domain.model.Song
 import com.musicplayer.presentation.PlayerViewModel
 import com.musicplayer.presentation.browse.albums.AlbumGridCard
 import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
+import com.musicplayer.presentation.browse.songs.SongActionSheet
 import com.musicplayer.presentation.browse.songs.SongListItem
 import com.musicplayer.presentation.components.SearchableTopAppBar
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -158,9 +159,18 @@ fun ArtistDetailScreen(
     val songs by viewModel.songs.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     var songForPlaylist by remember { mutableStateOf<Song?>(null) }
+    var songForAction by remember { mutableStateOf<Song?>(null) }
 
     songForPlaylist?.let { song ->
         AddToPlaylistSheet(songId = song.id, onDismiss = { songForPlaylist = null })
+    }
+    songForAction?.let { song ->
+        SongActionSheet(
+            song = song,
+            playerViewModel = playerViewModel,
+            onAddToPlaylist = { songForPlaylist = song },
+            onDismiss = { songForAction = null }
+        )
     }
 
     Scaffold(
@@ -196,7 +206,7 @@ fun ArtistDetailScreen(
                         SongListItem(
                             song = song,
                             onClick = { playerViewModel.playSongs(songs, index) },
-                            onLongClick = { songForPlaylist = song }
+                            onLongClick = { songForAction = song }
                         )
                     }
                 }

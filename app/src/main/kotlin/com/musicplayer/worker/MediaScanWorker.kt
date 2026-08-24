@@ -44,6 +44,24 @@ class MediaScanWorker @AssistedInject constructor(
             )
         }
 
+        // Manual re-scan (e.g. Settings' "Rescan All Folders"): unlike
+        // enqueueInitialScan's KEEP policy, this always runs — replacing any
+        // in-progress scan rather than being skipped by it.
+        fun enqueueManualScan(workManager: WorkManager) {
+            val request = OneTimeWorkRequestBuilder<MediaScanWorker>()
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiresBatteryNotLow(false)
+                        .build()
+                )
+                .build()
+            workManager.enqueueUniqueWork(
+                WORK_NAME_INITIAL,
+                ExistingWorkPolicy.REPLACE,
+                request
+            )
+        }
+
         fun enqueuePeriodicScan(workManager: WorkManager) {
             val request = PeriodicWorkRequestBuilder<MediaScanWorker>(6, TimeUnit.HOURS)
                 .setConstraints(

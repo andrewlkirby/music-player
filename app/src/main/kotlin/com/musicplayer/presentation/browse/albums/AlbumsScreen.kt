@@ -27,6 +27,7 @@ import com.musicplayer.domain.model.Song
 import com.musicplayer.domain.model.SortOrder
 import com.musicplayer.presentation.PlayerViewModel
 import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
+import com.musicplayer.presentation.browse.songs.SongActionSheet
 import com.musicplayer.presentation.browse.songs.SongListItem
 import com.musicplayer.presentation.browse.songs.formatDuration
 import com.musicplayer.presentation.components.SearchableTopAppBar
@@ -229,9 +230,18 @@ fun AlbumDetailScreen(
     val album by viewModel.album.collectAsState()
     val songs by viewModel.songs.collectAsState()
     var songForPlaylist by remember { mutableStateOf<Song?>(null) }
+    var songForAction by remember { mutableStateOf<Song?>(null) }
 
     songForPlaylist?.let { song ->
         AddToPlaylistSheet(songId = song.id, onDismiss = { songForPlaylist = null })
+    }
+    songForAction?.let { song ->
+        SongActionSheet(
+            song = song,
+            playerViewModel = playerViewModel,
+            onAddToPlaylist = { songForPlaylist = song },
+            onDismiss = { songForAction = null }
+        )
     }
 
     Scaffold(
@@ -292,7 +302,7 @@ fun AlbumDetailScreen(
                 SongListItem(
                     song = song,
                     onClick = { playerViewModel.playSongs(songs, index) },
-                    onLongClick = { songForPlaylist = song }
+                    onLongClick = { songForAction = song }
                 )
             }
         }

@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.paging.PagingSource
 import androidx.room.withTransaction
 import com.musicplayer.data.local.MusicDatabase
 import com.musicplayer.data.local.entities.*
@@ -129,6 +130,37 @@ class MusicRepository @Inject constructor(
 
     suspend fun getSongCount(): Int = db.songDao().getSongCount()
 
+    // ── Songs paging (Songs tab) ─────────────────────────────────────────
+    fun pagedSongs(order: SortOrder): PagingSource<Int, SongEntity> = when (order) {
+        SortOrder.TitleAsc -> db.songDao().pagingTitleAsc()
+        SortOrder.TitleDesc -> db.songDao().pagingTitleDesc()
+        SortOrder.ArtistAsc -> db.songDao().pagingArtistAsc()
+        SortOrder.DateAddedDesc -> db.songDao().pagingDateAddedDesc()
+        SortOrder.PlayCountDesc -> db.songDao().pagingPlayCountDesc()
+        else -> db.songDao().pagingTitleAsc()
+    }
+
+    fun getSongCountFlow(): Flow<Int> = db.songDao().getSongCountFlow()
+
+    // Full sorted fetch used only to build the play queue on tap — the
+    // visible paged list is partial.
+    suspend fun getSortedSongs(order: SortOrder): List<Song> = withContext(Dispatchers.Default) {
+        val rows = when (order) {
+            SortOrder.TitleAsc -> db.songDao().sortedSongsTitleAsc()
+            SortOrder.TitleDesc -> db.songDao().sortedSongsTitleDesc()
+            SortOrder.ArtistAsc -> db.songDao().sortedSongsArtistAsc()
+            SortOrder.DateAddedDesc -> db.songDao().sortedSongsDateAddedDesc()
+            SortOrder.PlayCountDesc -> db.songDao().sortedSongsPlayCountDesc()
+            else -> db.songDao().sortedSongsTitleAsc()
+        }
+        rows.map { it.toDomain() }
+    }
+
+    // Unsorted full fetch for shuffle.
+    suspend fun getAllSongsList(): List<Song> = withContext(Dispatchers.Default) {
+        db.songDao().getAllSongsList().map { it.toDomain() }
+    }
+
     // ── Direct insert (SAF / SD card scans) ──────────────────────────────
 
     suspend fun insertSongsDirectly(
@@ -207,6 +239,29 @@ class MusicRepository @Inject constructor(
         val albumMap = mutableMapOf<Long, AlbumEntity>()
         val artistMap = mutableMapOf<Long, ArtistEntity>()
         val validIds = mutableListOf<Long>()
+        // The legacy content://media/external/audio/albumart provider commonly
+        // has no row for a given album (Android 10+ scoped storage rarely
+        // populates it), and handing that dead URI to Media3 as MediaMetadata's
+        // artworkUri makes the session's notification/legacy-compat bitmap
+        // loader synchronously fail-and-retry against it on every track
+        // transition — measured as a ~700ms main-thread stall per skip during
+        // shuffle. Resolve once per album here (cached) instead of once per
+        // song, and store null when there's really no art so MediaMetadata
+        // never gets a URI that's known to 404.
+        val artworkExistsCache = mutableMapOf<Long, Boolean>()
+        fun resolvedArtworkUri(albumId: Long): String? {
+            val candidate = ContentUris.withAppendedId(
+                Uri.parse("content://media/external/audio/albumart"), albumId
+            )
+            val exists = artworkExistsCache.getOrPut(albumId) {
+                try {
+                    context.contentResolver.openInputStream(candidate)?.use { true } ?: false
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            return if (exists) candidate.toString() else null
+        }
 
         cursor?.use { c ->
             val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
@@ -243,9 +298,7 @@ class MusicRepository @Inject constructor(
                     MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id
                 )
 
-                val artworkUri = ContentUris.withAppendedId(
-                    Uri.parse("content://media/external/audio/albumart"), albumId
-                ).toString()
+                val artworkUri = resolvedArtworkUri(albumId)
 
                 val songEntity = SongEntity(
                     id = id,

@@ -7,7 +7,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
@@ -16,10 +15,10 @@ import com.musicplayer.data.repository.MusicRepository
 import com.musicplayer.domain.model.RepeatMode
 import com.musicplayer.domain.model.Song
 import com.musicplayer.service.MusicPlaybackService
-import com.musicplayer.service.toMediaItem
+import com.musicplayer.service.PendingQueueHolder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,7 +28,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class PlayerUiState(
@@ -47,14 +45,29 @@ data class PlayerUiState(
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val repository: MusicRepository
+    private val repository: MusicRepository,
+    private val queueHolder: PendingQueueHolder
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     private var controller: MediaController? = null
+    // The full ordered queue this session knows about — used for the "up next"
+    // list and to resolve a transition's MediaItem to a Song without a DB round
+    // trip. The service is the actual source of truth (it may hold a much
+    // larger virtual queue than what's currently loaded into the player); this
+    // is a session-local mirror for display purposes, built either directly by
+    // playSongs()/shufflePlay() or, after a cold-start restore, by
+    // hydratePersistedStateIfNeeded().
     private val queueSongs = mutableListOf<Song>()
+    private var queueSongsById: Map<Long, Song> = emptyMap()
+    // Position of each song within queueSongs — this IS the "virtual queue
+    // index" surfaced to the UI (state.currentQueueIndex), which is NOT the
+    // same as controller.currentMediaItemIndex once the service windows the
+    // live queue (that index is only local to whatever's currently loaded).
+    private var queueIndexById: Map<Long, Int> = emptyMap()
+    private var queueResolveJob: Job? = null
 
     init {
         connectToService()
@@ -82,28 +95,12 @@ class PlayerViewModel @Inject constructor(
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                val index = controller?.currentMediaItemIndex ?: 0
-                resolveCurrentSong(mediaItem, index)
+                resolveCurrentSong(mediaItem)
+                val virtualIndex = mediaItem?.mediaId?.toLongOrNull()?.let { queueIndexById[it] }
                 _uiState.update { state ->
                     state.copy(
-                        currentQueueIndex = index,
+                        currentQueueIndex = virtualIndex ?: state.currentQueueIndex,
                         duration = controller?.duration?.coerceAtLeast(0L) ?: 0L
-                    )
-                }
-            }
-
-            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
-                _uiState.update { it.copy(shuffleEnabled = shuffleModeEnabled) }
-            }
-
-            override fun onRepeatModeChanged(repeatMode: Int) {
-                _uiState.update {
-                    it.copy(
-                        repeatMode = when (repeatMode) {
-                            Player.REPEAT_MODE_ONE -> RepeatMode.ONE
-                            Player.REPEAT_MODE_ALL -> RepeatMode.ALL
-                            else -> RepeatMode.OFF
-                        }
                     )
                 }
             }
@@ -116,56 +113,45 @@ class PlayerViewModel @Inject constructor(
                 }
             }
 
-            override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-                // The controller's own initial-state sync can race the
-                // service's async restorePlaybackState() — syncState()'s
-                // resolveFullQueue() call may see an empty timeline and
-                // give up before restoration finishes. This fires whenever
-                // the timeline actually changes (including that restore
-                // completing), giving queue resolution another chance.
-                controller?.let { resolveFullQueue(it) }
-            }
+            // shuffleEnabled/repeatMode are app-level concepts now, not native
+            // Player state (the service never sets shuffleModeEnabled=true or
+            // repeatMode=ALL — see MusicPlaybackService's windowed-queue design
+            // notes), so there's no onShuffleModeEnabledChanged/
+            // onRepeatModeChanged callback to listen for. Both are updated
+            // optimistically by toggleShuffle()/toggleRepeat() and hydrated
+            // from persisted state on connect (hydratePersistedStateIfNeeded).
         })
     }
 
     private fun syncState() {
         val ctrl = controller ?: return
-        val index = ctrl.currentMediaItemIndex
         _uiState.update { state ->
             state.copy(
                 isPlaying = ctrl.isPlaying,
-                shuffleEnabled = ctrl.shuffleModeEnabled,
-                repeatMode = when (ctrl.repeatMode) {
-                    Player.REPEAT_MODE_ONE -> RepeatMode.ONE
-                    Player.REPEAT_MODE_ALL -> RepeatMode.ALL
-                    else -> RepeatMode.OFF
-                },
-                duration = ctrl.duration.coerceAtLeast(0L),
-                currentQueueIndex = index
+                duration = ctrl.duration.coerceAtLeast(0L)
             )
         }
-        // On a fresh app start, the service may have already restored a
-        // queue (MusicPlaybackService.restorePlaybackState) before this
-        // controller finished connecting — the transition event that would
-        // normally set currentSong/queue already fired and was missed, so
-        // the mini player would otherwise stay empty until the next real
-        // track change. Resolve both directly from the controller's
-        // already-established state instead of waiting for another event.
-        resolveCurrentSong(ctrl.currentMediaItem, index)
-        resolveFullQueue(ctrl)
+        // On a fresh app start, the service may have already restored a queue
+        // (MusicPlaybackService.restorePlaybackState) before this controller
+        // finished connecting — the transition event that would normally set
+        // currentSong already fired and was missed, so the mini player would
+        // otherwise stay empty until the next real track change. Resolve
+        // directly from the controller's already-established current item.
+        resolveCurrentSong(ctrl.currentMediaItem)
+        hydratePersistedStateIfNeeded()
     }
 
-    // Resolves the current song by mediaId rather than trusting queueSongs[index]:
-    // queueSongs is only populated by this session's own playSongs()/addToQueue()
-    // calls, so right after a cold start (queue restored service-side) or if it's
-    // otherwise out of sync with the controller, indexing into it is unreliable.
-    private fun resolveCurrentSong(mediaItem: MediaItem?, index: Int) {
+    // Resolves the current song by mediaId via the id-keyed cache (built
+    // whenever queueSongs is set — see setQueueSongs). Falls back to a DB
+    // lookup on a cache miss (e.g. before hydratePersistedStateIfNeeded/a
+    // session queue exists yet).
+    private fun resolveCurrentSong(mediaItem: MediaItem?) {
         val id = mediaItem?.mediaId?.toLongOrNull()
         if (id == null) {
             _uiState.update { it.copy(currentSong = null) }
             return
         }
-        val cached = queueSongs.getOrNull(index)?.takeIf { it.id == id }
+        val cached = queueSongsById[id]
         if (cached != null) {
             _uiState.update { it.copy(currentSong = cached) }
             return
@@ -176,21 +162,49 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    // Resolves the full queue (e.g. for the "up next" list) after a cold
-    // start, when queueSongs is empty because this session never called
-    // playSongs() itself. Skips entirely once a session-built queue exists.
-    private fun resolveFullQueue(ctrl: MediaController) {
+    // Hydrates UI state a fresh connection can't observe directly from Player
+    // callbacks: the full ordered queue (only the service's loaded WINDOW is
+    // visible via the controller once windowed, not the whole virtual queue)
+    // and shuffle/repeat (app-level now, not native Player state). Reads the
+    // same persisted row MusicPlaybackService.restorePlaybackState() itself
+    // restores from — no race to wait out, that row is already complete
+    // before restore even starts reading it. Skipped once a session-driven
+    // shufflePlay()/playSongs() call already established this state locally.
+    private fun hydratePersistedStateIfNeeded() {
         if (queueSongs.isNotEmpty()) return
-        viewModelScope.launch {
-            val ids = (0 until ctrl.mediaItemCount).mapNotNull { i ->
-                ctrl.getMediaItemAt(i).mediaId.toLongOrNull()
+        if (queueResolveJob?.isActive == true) return
+        queueResolveJob = viewModelScope.launch {
+            val state = repository.getPlaybackState() ?: return@launch
+            _uiState.update {
+                it.copy(
+                    shuffleEnabled = state.shuffleEnabled,
+                    repeatMode = when (state.repeatMode) {
+                        "ONE" -> RepeatMode.ONE
+                        "ALL" -> RepeatMode.ALL
+                        else -> RepeatMode.OFF
+                    }
+                )
             }
+            val ids = state.queueJson.trim('[', ']').split(",").mapNotNull { it.trim().toLongOrNull() }
             if (ids.isEmpty()) return@launch
             val songs = repository.getSongsByIds(ids)
-            if (queueSongs.isNotEmpty()) return@launch // a real playSongs() won the race
-            queueSongs.addAll(songs)
-            _uiState.update { it.copy(queue = songs) }
+            if (queueSongs.isNotEmpty()) return@launch // a real playSongs()/shufflePlay() won the race
+            setQueueSongs(songs)
+            _uiState.update { it.copy(queue = songs, currentQueueIndex = state.currentQueueIndex) }
         }
+    }
+
+    private fun setQueueSongs(songs: List<Song>) {
+        queueSongs.clear()
+        queueSongs.addAll(songs)
+        val byId = HashMap<Long, Song>(songs.size)
+        val indexById = HashMap<Long, Int>(songs.size)
+        songs.forEachIndexed { i, song ->
+            byId[song.id] = song
+            indexById[song.id] = i
+        }
+        queueSongsById = byId
+        queueIndexById = indexById
     }
 
     private fun startPositionUpdater() {
@@ -208,28 +222,72 @@ class PlayerViewModel @Inject constructor(
 
     // ── Public controls ───────────────────────────────────────────────────
 
+    // Starts playback across the given ordered list from startIndex. Only the
+    // song IDs + start index are sent to the service (via
+    // CUSTOM_COMMAND_SET_QUEUE, payload staged in queueHolder) — the service
+    // resolves and loads a bounded WINDOW of MediaItems around startIndex
+    // itself, so this stays fast regardless of list size instead of building
+    // (or worse, pushing over the controller) MediaItems for the whole list.
     fun playSongs(songs: List<Song>, startIndex: Int = 0) {
-        queueSongs.clear()
-        queueSongs.addAll(songs)
+        if (songs.isEmpty()) return
+        setQueueSongs(songs)
         // Update the UI (mini player, now-playing) immediately rather than
-        // waiting on the mapping/controller work below, so tapping a song
-        // reads as instant even while the queue is still being built.
+        // waiting on the service's window load, so tapping a song reads as
+        // instant even before the service confirms anything.
         _uiState.update { state ->
             state.copy(
                 queue = songs,
                 currentQueueIndex = startIndex,
-                currentSong = songs.getOrNull(startIndex)
+                currentSong = songs.getOrNull(startIndex),
+                shuffleEnabled = false
             )
         }
+        queueHolder.pendingIds = songs.map { it.id }
+        val args = Bundle().apply {
+            putInt(MusicPlaybackService.EXTRA_QUEUE_START_INDEX, startIndex)
+            putBoolean(MusicPlaybackService.EXTRA_QUEUE_SHUFFLED, false)
+        }
+        controller?.sendCustomCommand(
+            SessionCommand(MusicPlaybackService.CUSTOM_COMMAND_SET_QUEUE, args),
+            args
+        )
+    }
+
+    // Shuffles the whole given list once (a real full-library shuffle, unlike
+    // just picking a random start song) and starts playback on it via the same
+    // windowed CUSTOM_COMMAND_SET_QUEUE path as playSongs().
+    fun shufflePlay(songs: List<Song>) {
+        if (songs.isEmpty()) return
+        val shuffled = songs.shuffled()
+        setQueueSongs(shuffled)
+        _uiState.update { state ->
+            state.copy(
+                queue = shuffled,
+                currentQueueIndex = 0,
+                currentSong = shuffled[0],
+                shuffleEnabled = true
+            )
+        }
+        queueHolder.pendingIds = shuffled.map { it.id }
+        val args = Bundle().apply {
+            putInt(MusicPlaybackService.EXTRA_QUEUE_START_INDEX, 0)
+            putBoolean(MusicPlaybackService.EXTRA_QUEUE_SHUFFLED, true)
+        }
+        controller?.sendCustomCommand(
+            SessionCommand(MusicPlaybackService.CUSTOM_COMMAND_SET_QUEUE, args),
+            args
+        )
+    }
+
+    // Fetches the shuffle candidates via the given suspend supplier and starts
+    // shufflePlay(), all under viewModelScope. The Songs screen's fetch pulls
+    // the whole (unsorted) library, which can take a moment — running it on a
+    // Composable's rememberCoroutineScope would cancel it if the user
+    // navigates away from Songs before it finishes, silently dropping the tap.
+    // viewModelScope outlives that navigation.
+    fun shufflePlayAll(fetchSongs: suspend () -> List<Song>) {
         viewModelScope.launch {
-            // Building a MediaItem per song (metadata + two Uri.parse calls
-            // each) for a 30k-song queue was done synchronously on Main,
-            // visibly freezing the UI when starting playback from a large
-            // list. Off-main here; only the controller calls need Main.
-            val mediaItems = withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
-            controller?.setMediaItems(mediaItems, startIndex, 0)
-            controller?.prepare()
-            controller?.play()
+            shufflePlay(fetchSongs())
         }
     }
 
@@ -248,6 +306,9 @@ class PlayerViewModel @Inject constructor(
     fun seekTo(positionMs: Long) { controller?.seekTo(positionMs) }
 
     fun toggleShuffle() {
+        // Optimistic update — see setupControllerListener's note on why there's
+        // no Player.Listener callback to wait for instead.
+        _uiState.update { it.copy(shuffleEnabled = !it.shuffleEnabled) }
         controller?.sendCustomCommand(
             SessionCommand(MusicPlaybackService.CUSTOM_COMMAND_TOGGLE_SHUFFLE, Bundle.EMPTY),
             Bundle.EMPTY
@@ -255,6 +316,15 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun toggleRepeat() {
+        _uiState.update { state ->
+            state.copy(
+                repeatMode = when (state.repeatMode) {
+                    RepeatMode.OFF -> RepeatMode.ALL
+                    RepeatMode.ALL -> RepeatMode.ONE
+                    RepeatMode.ONE -> RepeatMode.OFF
+                }
+            )
+        }
         controller?.sendCustomCommand(
             SessionCommand(MusicPlaybackService.CUSTOM_COMMAND_TOGGLE_REPEAT, Bundle.EMPTY),
             Bundle.EMPTY
@@ -269,17 +339,36 @@ class PlayerViewModel @Inject constructor(
         )
     }
 
+    // Both route through the service (CUSTOM_COMMAND_ADD_TO_QUEUE/PLAY_NEXT)
+    // rather than calling controller.addMediaItem() directly — the service
+    // owns the virtual queue, and a direct controller add would only affect
+    // whatever's in the loaded WINDOW, silently vanishing on the next window
+    // shift/trim instead of actually landing in the full queue.
     fun addToQueue(song: Song) {
-        queueSongs.add(song)
-        controller?.addMediaItem(song.toMediaItem())
-        _uiState.update { it.copy(queue = queueSongs.toList()) }
+        if (queueSongs.isNotEmpty()) {
+            val updated = queueSongs + song
+            setQueueSongs(updated)
+            _uiState.update { it.copy(queue = updated) }
+        }
+        val args = Bundle().apply { putLong(MusicPlaybackService.EXTRA_SONG_ID, song.id) }
+        controller?.sendCustomCommand(
+            SessionCommand(MusicPlaybackService.CUSTOM_COMMAND_ADD_TO_QUEUE, args),
+            args
+        )
     }
 
     fun playNext(song: Song) {
-        val nextIndex = (controller?.currentMediaItemIndex ?: 0) + 1
-        queueSongs.add(nextIndex.coerceAtMost(queueSongs.size), song)
-        controller?.addMediaItem(nextIndex, song.toMediaItem())
-        _uiState.update { it.copy(queue = queueSongs.toList()) }
+        if (queueSongs.isNotEmpty()) {
+            val insertAt = (_uiState.value.currentQueueIndex + 1).coerceAtMost(queueSongs.size)
+            val updated = queueSongs.toMutableList().apply { add(insertAt, song) }
+            setQueueSongs(updated)
+            _uiState.update { it.copy(queue = updated) }
+        }
+        val args = Bundle().apply { putLong(MusicPlaybackService.EXTRA_SONG_ID, song.id) }
+        controller?.sendCustomCommand(
+            SessionCommand(MusicPlaybackService.CUSTOM_COMMAND_PLAY_NEXT, args),
+            args
+        )
     }
 
     fun toggleFavorite(songId: Long, isFavorite: Boolean) {

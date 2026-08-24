@@ -1,5 +1,6 @@
 package com.musicplayer.data.local.dao
 
+import androidx.paging.PagingSource
 import androidx.room.*
 import com.musicplayer.data.local.entities.*
 import kotlinx.coroutines.flow.Flow
@@ -80,6 +81,52 @@ interface SongDao {
 
     @Query("SELECT COUNT(*) FROM songs")
     suspend fun getSongCount(): Int
+
+    // ── Paging (Songs tab) ───────────────────────────────────────────────
+    // Query-time ORDER BY, one PagingSource per sort order — avoids loading
+    // and sorting the entire table in memory on every screen open/launch.
+
+    @Query("SELECT * FROM songs ORDER BY title COLLATE NOCASE ASC")
+    fun pagingTitleAsc(): PagingSource<Int, SongEntity>
+
+    @Query("SELECT * FROM songs ORDER BY title COLLATE NOCASE DESC")
+    fun pagingTitleDesc(): PagingSource<Int, SongEntity>
+
+    @Query("SELECT * FROM songs ORDER BY artist COLLATE NOCASE ASC, title COLLATE NOCASE ASC")
+    fun pagingArtistAsc(): PagingSource<Int, SongEntity>
+
+    @Query("SELECT * FROM songs ORDER BY dateAdded DESC")
+    fun pagingDateAddedDesc(): PagingSource<Int, SongEntity>
+
+    @Query("SELECT * FROM songs ORDER BY playCount DESC")
+    fun pagingPlayCountDesc(): PagingSource<Int, SongEntity>
+
+    @Query("SELECT COUNT(*) FROM songs")
+    fun getSongCountFlow(): Flow<Int>
+
+    // Order-preserving full fetches used only to build the play queue when a
+    // song is tapped — the visible paged list is partial, so playback needs
+    // the complete sorted list to queue everything after the tapped track.
+
+    @Query("SELECT * FROM songs ORDER BY title COLLATE NOCASE ASC")
+    suspend fun sortedSongsTitleAsc(): List<SongEntity>
+
+    @Query("SELECT * FROM songs ORDER BY title COLLATE NOCASE DESC")
+    suspend fun sortedSongsTitleDesc(): List<SongEntity>
+
+    @Query("SELECT * FROM songs ORDER BY artist COLLATE NOCASE ASC, title COLLATE NOCASE ASC")
+    suspend fun sortedSongsArtistAsc(): List<SongEntity>
+
+    @Query("SELECT * FROM songs ORDER BY dateAdded DESC")
+    suspend fun sortedSongsDateAddedDesc(): List<SongEntity>
+
+    @Query("SELECT * FROM songs ORDER BY playCount DESC")
+    suspend fun sortedSongsPlayCountDesc(): List<SongEntity>
+
+    // Unsorted full fetch for shuffle — order is randomized client-side anyway,
+    // so there's no reason to pay for an ORDER BY here.
+    @Query("SELECT * FROM songs")
+    suspend fun getAllSongsList(): List<SongEntity>
 }
 
 @Dao

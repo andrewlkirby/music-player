@@ -35,6 +35,7 @@ import com.musicplayer.data.repository.ThemeUiState
 import com.musicplayer.presentation.theme.AppIcons
 import com.musicplayer.presentation.theme.AppTheme
 import com.musicplayer.presentation.theme.colorSchemeFor
+import com.musicplayer.worker.MediaScanWorker
 import com.musicplayer.worker.SdCardScanWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -182,6 +183,10 @@ class SettingsViewModel @Inject constructor(
             watchedFolders.value.forEach { uri ->
                 SdCardScanWorker.enqueue(WorkManager.getInstance(context), uri)
             }
+            // Also refresh the MediaStore-sourced portion of the library —
+            // previously this button only covered watched SD-card folders,
+            // leaving no manual way to refresh MediaStore-sourced songs.
+            MediaScanWorker.enqueueManualScan(WorkManager.getInstance(context))
         }
     }
 

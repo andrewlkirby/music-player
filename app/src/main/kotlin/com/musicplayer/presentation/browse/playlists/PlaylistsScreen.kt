@@ -31,6 +31,7 @@ import com.musicplayer.domain.model.Playlist
 import com.musicplayer.domain.model.PlaylistType
 import com.musicplayer.domain.model.Song
 import com.musicplayer.presentation.PlayerViewModel
+import com.musicplayer.presentation.browse.songs.SongActionSheet
 import com.musicplayer.presentation.browse.songs.SongListItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -241,28 +242,18 @@ fun PlaylistDetailScreen(
     }
 
     songForAction?.let { song ->
-        ModalBottomSheet(onDismissRequest = { songForAction = null }) {
-            Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-                ListItem(
-                    headlineContent = { Text("Add to Another Playlist") },
-                    leadingContent = { Icon(AppIcons.PlaylistAdd, null) },
-                    modifier = Modifier.clickable {
-                        songForPlaylist = song
-                        songForAction = null
-                    }
-                )
-                ListItem(
-                    headlineContent = { Text("Remove from This Playlist") },
-                    leadingContent = {
-                        Icon(AppIcons.Delete, null, tint = MaterialTheme.colorScheme.error)
-                    },
-                    modifier = Modifier.clickable {
-                        viewModel.removeSong(playlistId, song.id)
-                        songForAction = null
-                    }
-                )
-            }
-        }
+        SongActionSheet(
+            song = song,
+            playerViewModel = playerViewModel,
+            onAddToPlaylist = { songForPlaylist = song },
+            onDismiss = { songForAction = null },
+            // Only user-created playlists (isUserPlaylist) support removing a
+            // song — the smart playlists (Recently Added/Most Played/
+            // Favorites) below aren't editable membership lists.
+            onRemoveFromPlaylist = if (isUserPlaylist) {
+                { viewModel.removeSong(playlistId, song.id) }
+            } else null
+        )
     }
 
     val listState = rememberLazyListState()
@@ -279,7 +270,7 @@ fun PlaylistDetailScreen(
                 },
                 actions = {
                     if (orderedSongs.isNotEmpty()) {
-                        IconButton(onClick = { playerViewModel.playSongs(orderedSongs.shuffled(), 0) }) {
+                        IconButton(onClick = { playerViewModel.shufflePlay(orderedSongs) }) {
                             Icon(AppIcons.Shuffle, "Shuffle play")
                         }
                     }
@@ -345,7 +336,7 @@ fun PlaylistDetailScreen(
                     SongListItem(
                         song = song,
                         onClick = { playerViewModel.playSongs(orderedSongs, index) },
-                        onLongClick = { songForPlaylist = song }
+                        onLongClick = { songForAction = song }
                     )
                 }
             }

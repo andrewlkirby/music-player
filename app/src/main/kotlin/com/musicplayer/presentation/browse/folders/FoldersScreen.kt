@@ -21,6 +21,7 @@ import com.musicplayer.data.repository.MusicRepository
 import com.musicplayer.domain.model.Song
 import com.musicplayer.presentation.PlayerViewModel
 import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
+import com.musicplayer.presentation.browse.songs.SongActionSheet
 import com.musicplayer.presentation.browse.songs.SongListItem
 import com.musicplayer.presentation.components.SearchableTopAppBar
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -186,6 +187,7 @@ fun FoldersScreen(
     val state by viewModel.uiState.collectAsState()
     var showSortMenu by remember { mutableStateOf(false) }
     var songForPlaylist by remember { mutableStateOf<Song?>(null) }
+    var songForAction by remember { mutableStateOf<Song?>(null) }
     var isSearching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
 
@@ -207,6 +209,14 @@ fun FoldersScreen(
 
     songForPlaylist?.let { song ->
         AddToPlaylistSheet(songId = song.id, onDismiss = { songForPlaylist = null })
+    }
+    songForAction?.let { song ->
+        SongActionSheet(
+            song = song,
+            playerViewModel = playerViewModel,
+            onAddToPlaylist = { songForPlaylist = song },
+            onDismiss = { songForAction = null }
+        )
     }
 
     Scaffold(
@@ -361,7 +371,7 @@ fun FoldersScreen(
                                     song = song,
                                     onClick = { playerViewModel.playSongs(state.songs, songIndex) },
                                     showTrackNumber = true,
-                                    onLongClick = { songForPlaylist = song }
+                                    onLongClick = { songForAction = song }
                                 )
                             }
                         }

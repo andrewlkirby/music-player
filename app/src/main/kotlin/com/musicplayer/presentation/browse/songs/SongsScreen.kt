@@ -4,7 +4,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
 import com.musicplayer.presentation.theme.AppIcons
 import androidx.compose.material3.*
@@ -17,11 +16,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.musicplayer.domain.model.Song
 import com.musicplayer.domain.model.SortOrder
 import com.musicplayer.presentation.PlayerViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,16 +33,23 @@ fun SongsScreen(
     onNavigateToSearch: () -> Unit,
     viewModel: SongsViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val songs = viewModel.songs.collectAsLazyPagingItems()
+    val totalCount by viewModel.totalCount.collectAsState()
     var showSortMenu by remember { mutableStateOf(false) }
     var songForPlaylist by remember { mutableStateOf<Song?>(null) }
-
-    LaunchedEffect(Unit) {
-        viewModel.refresh()
-    }
+    var songForAction by remember { mutableStateOf<Song?>(null) }
+    val scope = rememberCoroutineScope()
 
     songForPlaylist?.let { song ->
         AddToPlaylistSheet(songId = song.id, onDismiss = { songForPlaylist = null })
+    }
+    songForAction?.let { song ->
+        SongActionSheet(
+            song = song,
+            playerViewModel = playerViewModel,
+            onAddToPlaylist = { songForPlaylist = song },
+            onDismiss = { songForAction = null }
+        )
     }
 
     Scaffold(
@@ -49,9 +59,9 @@ fun SongsScreen(
                 title = {
                     Column {
                         Text("Songs")
-                        if (state.totalCount > 0) {
+                        if (totalCount > 0) {
                             Text(
-                                "${state.totalCount} tracks",
+                                "$totalCount tracks",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -59,6 +69,11 @@ fun SongsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        playerViewModel.shufflePlayAll { viewModel.songsForShuffle() }
+                    }) {
+                        Icon(AppIcons.Shuffle, "Shuffle all")
+                    }
                     IconButton(onClick = onNavigateToSearch) {
                         Icon(AppIcons.Search, "Search")
                     }
@@ -86,17 +101,28 @@ fun SongsScreen(
             )
         }
     ) { padding ->
-        if (state.isLoading) {
+        val isInitialLoading = songs.loadState.refresh is LoadState.Loading && songs.itemCount == 0
+        if (isInitialLoading) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-                itemsIndexed(state.songs, key = { _, song -> song.id }) { index, song ->
+                items(count = songs.itemCount, key = songs.itemKey { it.id }) { index ->
+                    val song = songs[index] ?: return@items
                     SongListItem(
                         song = song,
-                        onClick = { playerViewModel.playSongs(state.songs, index) },
-                        onLongClick = { songForPlaylist = song }
+                        onClick = {
+                            // The paged list on screen is only a partial window;
+                            // build the full sorted queue so everything plays
+                            // after the tapped track.
+                            scope.launch {
+                                val full = viewModel.buildQueue()
+                                val start = full.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
+                                playerViewModel.playSongs(full, start)
+                            }
+                        },
+                        onLongClick = { songForAction = song }
                     )
                 }
             }
