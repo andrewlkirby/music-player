@@ -26,6 +26,7 @@ import com.musicplayer.presentation.PlayerUiState
 import com.musicplayer.presentation.PlayerViewModel
 import com.musicplayer.presentation.browse.playlists.AddToPlaylistSheet
 import com.musicplayer.presentation.browse.songs.formatDuration
+import kotlinx.coroutines.flow.StateFlow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,6 +100,7 @@ fun NowPlayingScreen(
             } else {
                 NowPlayingContent(
                     state = state,
+                    position = playerViewModel.position,
                     onPlayPause = { playerViewModel.togglePlayPause() },
                     onNext = { playerViewModel.seekToNext() },
                     onPrevious = { playerViewModel.seekToPrevious() },
@@ -117,6 +119,7 @@ fun NowPlayingScreen(
 @Composable
 private fun NowPlayingContent(
     state: PlayerUiState,
+    position: StateFlow<Long>,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -213,31 +216,9 @@ private fun NowPlayingContent(
 
         Spacer(Modifier.height(16.dp))
 
-        // Seek bar
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Slider(
-                value = if (state.duration > 0) state.position.toFloat() / state.duration else 0f,
-                onValueChange = { fraction ->
-                    onSeek((fraction * state.duration).toLong())
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    formatDuration(state.position),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    formatDuration(state.duration),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+        // Isolated in its own composable so the 500ms position tick only
+        // recomposes the seek bar + time labels, not the whole screen.
+        SeekBarSection(position = position, duration = state.duration, onSeek = onSeek)
 
         Spacer(Modifier.height(8.dp))
 
@@ -300,6 +281,33 @@ private fun NowPlayingContent(
 }
 
 @Composable
+private fun SeekBarSection(position: StateFlow<Long>, duration: Long, onSeek: (Long) -> Unit) {
+    val pos by position.collectAsState()
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Slider(
+            value = if (duration > 0) pos.toFloat() / duration else 0f,
+            onValueChange = { fraction -> onSeek((fraction * duration).toLong()) },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                formatDuration(pos),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                formatDuration(duration),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
 private fun QueueView(
     state: PlayerUiState,
     onSongClick: (Int) -> Unit,
@@ -323,8 +331,8 @@ private fun QueueView(
         }
         HorizontalDivider()
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            itemsIndexed(state.queue, key = { i, s -> "$i-${s.id}" }) { _, song ->
-                val indexInQueue = state.queue.indexOf(song) // UseindexOf as a safe fallback or just keep using index if we rename it
+            itemsIndexed(state.queue, key = { i, s -> "$i-${s.id}" }) { index, song ->
+                val indexInQueue = index
                 val isCurrent = indexInQueue == state.currentQueueIndex
                 ListItem(
                     headlineContent = {

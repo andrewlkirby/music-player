@@ -1,5 +1,6 @@
 package com.musicplayer.data.local.entities
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -18,13 +19,19 @@ object SongSource {
     tableName = "songs",
     indices = [
         Index("albumId"), Index("artistId"), Index("path"),
-        Index("isFavorite"), Index("dateAdded"), Index("playCount"), Index("source")
+        Index("isFavorite"), Index("dateAdded"), Index("playCount"), Index("source"),
+        Index("title"), Index("artist")
     ]
 )
 data class SongEntity(
     @PrimaryKey val id: Long,
-    val title: String,
-    val artist: String,
+    // NOCASE collation matches the "COLLATE NOCASE" sort queries in SongDao
+    // (pagingTitleAsc/Desc, sortedSongsTitleAsc/Desc, etc.) — without it, the
+    // index above has the default BINARY collation and SQLite can't use it to
+    // satisfy an ORDER BY ... COLLATE NOCASE, so every sorted fetch still
+    // builds a transient sort b-tree despite the index existing.
+    @ColumnInfo(collate = ColumnInfo.NOCASE) val title: String,
+    @ColumnInfo(collate = ColumnInfo.NOCASE) val artist: String,
     val album: String,
     val albumId: Long,
     val artistId: Long,
@@ -45,11 +52,11 @@ data class SongEntity(
 
 @Entity(
     tableName = "albums",
-    indices = [Index("artistId")]
+    indices = [Index("artistId"), Index("name")]
 )
 data class AlbumEntity(
     @PrimaryKey val id: Long,
-    val name: String,
+    @ColumnInfo(collate = ColumnInfo.NOCASE) val name: String,
     val artist: String,
     val artistId: Long,
     val year: Int,
@@ -57,10 +64,13 @@ data class AlbumEntity(
     val artworkPath: String? = null
 )
 
-@Entity(tableName = "artists")
+@Entity(
+    tableName = "artists",
+    indices = [Index("name")]
+)
 data class ArtistEntity(
     @PrimaryKey val id: Long,
-    val name: String,
+    @ColumnInfo(collate = ColumnInfo.NOCASE) val name: String,
     val albumCount: Int,
     val songCount: Int
 )

@@ -109,6 +109,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 MiniPlayer(
                                     state = playerState,
+                                    position = playerViewModel.position,
                                     onTap = { navController.navigate(Screen.NowPlaying.route) },
                                     onPlayPause = { playerViewModel.togglePlayPause() },
                                     onNext = { playerViewModel.seekToNext() }

@@ -166,6 +166,13 @@ class SdCardScanWorker @AssistedInject constructor(
         val artistMap  = mutableMapOf<String, ArtistEntity>()
         var songsSaved = 0
 
+        // The "fast path" below reuses MediaStore's own _ID for files also
+        // visible via SAF, so this SD card scan can rebuild the exact same
+        // row scanMediaStore() owns — without carrying playCount/isFavorite
+        // forward, insertSongsDirectly's REPLACE would silently reset them,
+        // the same bug fixed in MusicRepository.scanMediaStore().
+        val existingById = repository.getAllSongsList().associateBy { it.id }
+
         audioFiles.forEach { file ->
             val fileUri  = file.uri
             val fileName = file.name
@@ -247,6 +254,8 @@ class SdCardScanWorker @AssistedInject constructor(
                 source       = SongSource.SAF
             }
 
+            val existing = existingById[id]
+
             songs.add(
                 SongEntity(
                     id           = id,
@@ -263,6 +272,8 @@ class SdCardScanWorker @AssistedInject constructor(
                     uriString    = fileUri.toString(),
                     size         = size,
                     dateAdded    = dateAdded,
+                    playCount    = existing?.playCount ?: 0,
+                    isFavorite   = existing?.isFavorite ?: false,
                     artworkPath  = artworkPath,
                     lastModified = lastModified,
                     source       = source

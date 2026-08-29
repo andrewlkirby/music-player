@@ -235,6 +235,13 @@ class MusicRepository @Inject constructor(
                 "${MediaStore.Audio.Media.TITLE} ASC"
             )
 
+        // A rescan rebuilds every row from MediaStore, which knows nothing
+        // about playCount/isFavorite — without carrying these forward, any
+        // rescan (including the user-triggered manual one, now the only kind
+        // that runs — see MusicPlayerApp.onCreate) silently resets them to
+        // 0/false via insertSongs' REPLACE conflict strategy.
+        val existingById = db.songDao().getAllSongsList().associateBy { it.id }
+
         val songs = mutableListOf<SongEntity>()
         val albumMap = mutableMapOf<Long, AlbumEntity>()
         val artistMap = mutableMapOf<Long, ArtistEntity>()
@@ -299,6 +306,7 @@ class MusicRepository @Inject constructor(
                 )
 
                 val artworkUri = resolvedArtworkUri(albumId)
+                val existing = existingById[id]
 
                 val songEntity = SongEntity(
                     id = id,
@@ -315,6 +323,8 @@ class MusicRepository @Inject constructor(
                     uriString = uri.toString(),
                     size = c.getLong(sizeCol),
                     dateAdded = c.getLong(dateAddedCol),
+                    playCount = existing?.playCount ?: 0,
+                    isFavorite = existing?.isFavorite ?: false,
                     artworkPath = tagData?.embeddedArtPath ?: artworkUri,
                     lastModified = lastModified,
                     source = SongSource.MEDIASTORE

@@ -47,18 +47,16 @@ class MusicPlayerApp : Application(), Configuration.Provider, ImageLoaderFactory
 
     override fun onCreate() {
         super.onCreate()
-        
-        // Register Hilt Worker Factory manually to ensure it's used
-        WorkManager.initialize(
-            this,
-            Configuration.Builder()
-                .setWorkerFactory(workerFactory)
-                .build()
-        )
 
-        // Schedule media scan
+        // Schedule media scan. WorkManager is auto-initialized on-demand via
+        // the Configuration.Provider override above (no manual
+        // WorkManager.initialize needed — that was a redundant duplicate init).
         val wm = WorkManager.getInstance(this)
         MediaScanWorker.enqueueInitialScan(wm)
-        MediaScanWorker.enqueuePeriodicScan(wm)
+        // No periodic rescan (see MediaScanWorker.cancelPeriodicScan) — the
+        // user rarely adds songs, so scanning is manual-only (Settings) plus
+        // this one-time initial scan. Cancels any periodic work a previous
+        // app version already registered on this device.
+        MediaScanWorker.cancelPeriodicScan(wm)
     }
 }

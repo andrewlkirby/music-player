@@ -14,13 +14,17 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.musicplayer.presentation.theme.AppIcons
+import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 fun MiniPlayer(
     state: PlayerUiState,
+    position: StateFlow<Long>,
     onTap: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -37,16 +41,9 @@ fun MiniPlayer(
         shadowElevation = 8.dp
     ) {
         Column {
-            // Progress bar
-            LinearProgressIndicator(
-                progress = {
-                    if (state.duration > 0) (state.position.toFloat() / state.duration)
-                    else 0f
-                },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
+            // Isolated in its own composable so the 500ms position tick only
+            // recomposes this progress bar, not the album art/text/controls below.
+            MiniPlayerProgressBar(position = position, duration = state.duration)
 
             Row(
                 modifier = Modifier
@@ -107,4 +104,15 @@ fun MiniPlayer(
             }
         }
     }
+}
+
+@Composable
+private fun MiniPlayerProgressBar(position: StateFlow<Long>, duration: Long) {
+    val pos by position.collectAsState()
+    LinearProgressIndicator(
+        progress = { if (duration > 0) (pos.toFloat() / duration) else 0f },
+        modifier = Modifier.fillMaxWidth().height(2.dp),
+        color = MaterialTheme.colorScheme.primary,
+        trackColor = MaterialTheme.colorScheme.surfaceVariant
+    )
 }

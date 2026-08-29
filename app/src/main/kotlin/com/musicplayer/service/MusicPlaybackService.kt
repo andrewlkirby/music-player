@@ -35,6 +35,12 @@ class MusicPlaybackService : MediaSessionService() {
     private var progressPersistJob: Job? = null
     private var periodicPersistJob: Job? = null
     private var fullStatePersistJob: Job? = null
+    // Counts a play only after the current song has stuck around for
+    // PLAY_COUNT_THRESHOLD_MS — cancelled and rescheduled on every transition,
+    // so a skip-storm cancels each pending increment before it fires instead
+    // of writing (and invalidating the whole songs table) once per skip.
+    private var playCountJob: Job? = null
+    private var sleepTimerJob: Job? = null
 
     // ── Virtual queue ────────────────────────────────────────────────────
     // The full ordered list of song IDs for "what's playing and in what order."
@@ -74,6 +80,10 @@ class MusicPlaybackService : MediaSessionService() {
         private const val PROGRESS_PERSIST_DEBOUNCE_MS = 500L
         private const val PERIODIC_PERSIST_INTERVAL_MS = 10_000L
         private const val FULL_STATE_PERSIST_DEBOUNCE_MS = 500L
+        // A song only counts as "played" once it's been current for this long —
+        // filters out skip-storms from incrementing playCount (and invalidating
+        // every songs-table Flow) once per skip.
+        private const val PLAY_COUNT_THRESHOLD_MS = 5_000L
         // Matches PlayerViewModel.SHUFFLE_FILL_CHUNK_SIZE's tuned value: on a
         // 34k-song queue, larger chunks (fewer total addMediaItems() calls)
         // measurably reduced BOTH total fill time and total dropped frames,
@@ -130,6 +140,8 @@ class MusicPlaybackService : MediaSessionService() {
         periodicPersistJob?.cancel()
         fullStatePersistJob?.cancel()
         queueLoadJob?.cancel()
+        playCountJob?.cancel()
+        sleepTimerJob?.cancel()
         runBlocking { persistProgress() }
         serviceScope.cancel()
         mediaSession?.run {
@@ -153,8 +165,10 @@ class MusicPlaybackService : MediaSessionService() {
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                playCountJob?.cancel()
                 mediaItem?.mediaId?.toLongOrNull()?.let { songId ->
-                    serviceScope.launch {
+                    playCountJob = serviceScope.launch {
+                        delay(PLAY_COUNT_THRESHOLD_MS)
                         repository.incrementPlayCount(songId)
                     }
                 }
@@ -572,8 +586,9 @@ class MusicPlaybackService : MediaSessionService() {
                 }
                 CUSTOM_COMMAND_SET_SLEEP_TIMER -> {
                     val minutes = args.getInt(EXTRA_SLEEP_TIMER_MINUTES, 0)
+                    sleepTimerJob?.cancel()
                     if (minutes > 0) {
-                        serviceScope.launch {
+                        sleepTimerJob = serviceScope.launch {
                             delay(minutes * 60_000L)
                             player.pause()
                         }

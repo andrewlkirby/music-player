@@ -14,7 +14,15 @@ import com.musicplayer.data.local.entities.*
         PlaylistSongEntity::class,
         PlaybackStateEntity::class
     ],
-    version = 3,
+    // v4: added Index on songs.title/artist, albums.name, artists.name (with
+    // NOCASE collation to match COLLATE NOCASE sort queries), so sorted/paged
+    // fetches use an index instead of a transient sort. No Migration is
+    // written — relies on fallbackToDestructiveMigration (AppModules.kt),
+    // which drops and repopulates the DB from MediaStore on next launch. This
+    // was an explicit, accepted one-time tradeoff (favorites/playCount/
+    // playlists are lost once); going forward scanMediaStore() preserves them
+    // across rescans (see MusicRepository.scanMediaStore's existingById map).
+    version = 4,
     exportSchema = false
 )
 abstract class MusicDatabase : RoomDatabase() {

@@ -33,7 +33,6 @@ import javax.inject.Inject
 data class PlayerUiState(
     val currentSong: Song? = null,
     val isPlaying: Boolean = false,
-    val position: Long = 0L,
     val duration: Long = 0L,
     val shuffleEnabled: Boolean = false,
     val repeatMode: RepeatMode = RepeatMode.OFF,
@@ -51,6 +50,14 @@ class PlayerViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
+
+    // Ticks every 500ms while playing (see startPositionUpdater). Kept out of
+    // PlayerUiState so this high-frequency value doesn't fan out a
+    // recomposition to every uiState collector (Scaffold, queue panel, etc.) —
+    // only the composables that actually read this flow (the seek bar, mini
+    // player progress) recompose on each tick.
+    private val _position = MutableStateFlow(0L)
+    val position: StateFlow<Long> = _position.asStateFlow()
 
     private var controller: MediaController? = null
     // The full ordered queue this session knows about — used for the "up next"
@@ -96,6 +103,7 @@ class PlayerViewModel @Inject constructor(
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 resolveCurrentSong(mediaItem)
+                _position.value = 0L
                 val virtualIndex = mediaItem?.mediaId?.toLongOrNull()?.let { queueIndexById[it] }
                 _uiState.update { state ->
                     state.copy(
@@ -125,6 +133,7 @@ class PlayerViewModel @Inject constructor(
 
     private fun syncState() {
         val ctrl = controller ?: return
+        _position.value = ctrl.currentPosition.coerceAtLeast(0L)
         _uiState.update { state ->
             state.copy(
                 isPlaying = ctrl.isPlaying,
@@ -213,8 +222,7 @@ class PlayerViewModel @Inject constructor(
                 if (!isPlaying) return@collectLatest
                 while (true) {
                     delay(500)
-                    val pos = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
-                    _uiState.update { it.copy(position = pos) }
+                    _position.value = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
                 }
             }
         }
@@ -303,7 +311,10 @@ class PlayerViewModel @Inject constructor(
         else ctrl.seekToPreviousMediaItem()
     }
 
-    fun seekTo(positionMs: Long) { controller?.seekTo(positionMs) }
+    fun seekTo(positionMs: Long) {
+        controller?.seekTo(positionMs)
+        _position.value = positionMs
+    }
 
     fun toggleShuffle() {
         // Optimistic update — see setupControllerListener's note on why there's
