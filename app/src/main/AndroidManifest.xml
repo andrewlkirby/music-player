@@ -76,6 +76,17 @@
             </intent-filter>
         </service>
 
+        <!-- Lets a media button (e.g. the car sending a play command on
+             connect) cold-start MusicPlaybackService even when the app
+             process is dead, so playback resumption can kick in. -->
+        <receiver
+            android:name="androidx.media3.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
         <!-- WorkManager initializer (Custom configuration used in Application class) -->
         <provider
             android:name="androidx.startup.InitializationProvider"

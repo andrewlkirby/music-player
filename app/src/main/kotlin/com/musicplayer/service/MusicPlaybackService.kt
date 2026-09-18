@@ -15,6 +15,7 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import com.musicplayer.data.local.entities.PlaybackStateEntity
 import com.musicplayer.data.repository.MusicRepository
 import com.musicplayer.domain.model.Song
@@ -370,6 +371,33 @@ class MusicPlaybackService : MediaSessionService() {
         persistFullPlaybackState()
     }
 
+    // Builds a bounded window of MediaItems around targetIndex for playback
+    // resumption (a cold-start triggered by the car/media-button when the
+    // player has no current item). Unlike loadWindowInline, this doesn't
+    // touch the player directly — the framework applies the returned items
+    // via the MediaItemsWithStartPosition it gets back from
+    // onPlaybackResumption — so it stays a separate, simpler path rather than
+    // forcing the tuned fast-start logic in loadWindowInline to serve two
+    // different callers.
+    private suspend fun buildResumptionWindow(
+        ids: List<Long>,
+        targetIndex: Int,
+        shuffled: Boolean
+    ): Pair<List<MediaItem>, Int> {
+        virtualQueueIds = ids
+        virtualQueueShuffled = shuffled
+        player.shuffleModeEnabled = false
+        val clampedTarget = targetIndex.coerceIn(0, ids.size - 1)
+        val windowStart = (clampedTarget - WINDOW_BEHIND).coerceAtLeast(0)
+        val windowEnd = (clampedTarget + WINDOW_AHEAD).coerceAtMost(ids.size - 1)
+        windowStartOffset = windowStart
+
+        val windowIds = ids.subList(windowStart, windowEnd + 1)
+        val songs = repository.getSongsByIds(windowIds)
+        val items = withContext(Dispatchers.Default) { songs.map { it.toMediaItem() } }
+        return items to (clampedTarget - windowStart)
+    }
+
     // Inserts songId into the virtual queue — either right after the current
     // song (playNext) or at the very end (add to queue) — and, if that
     // position falls within the currently loaded window, adds it to the real
@@ -526,6 +554,42 @@ class MusicPlaybackService : MediaSessionService() {
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             queueLoadJob?.cancel()
             return super.onSetMediaItems(mediaSession, controller, mediaItems, startIndex, startPositionMs)
+        }
+
+        // Called when a controller (e.g. the car head unit sending a play
+        // command, or a media button) needs the session to resume playback
+        // but the player currently has no media item — the case on a cold
+        // start where the service was just created by that command, not by
+        // the app being opened. Resolves the same saved playback_state row
+        // restorePlaybackState() uses, so connecting to the car resumes the
+        // exact song/position/queue/shuffle/repeat last left off.
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            serviceScope.launch {
+                val state = repository.getPlaybackState()
+                val songIds = state?.queueJson
+                    ?.trim('[', ']')
+                    ?.split(",")
+                    ?.mapNotNull { it.trim().toLongOrNull() }
+                    ?: emptyList()
+                if (state == null || songIds.isEmpty()) {
+                    future.set(MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L))
+                    return@launch
+                }
+                repeatAllEnabled = state.repeatMode == "ALL"
+                player.repeatMode =
+                    if (state.repeatMode == "ONE") Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                val (items, localIndex) = buildResumptionWindow(
+                    songIds,
+                    state.currentQueueIndex,
+                    state.shuffleEnabled
+                )
+                future.set(MediaSession.MediaItemsWithStartPosition(items, localIndex, state.position))
+            }
+            return future
         }
 
         override fun onCustomCommand(
