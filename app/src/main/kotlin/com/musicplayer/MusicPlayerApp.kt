@@ -8,6 +8,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.musicplayer.util.CrashHandler
 import com.musicplayer.worker.MediaScanWorker
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -47,6 +48,9 @@ class MusicPlayerApp : Application(), Configuration.Provider, ImageLoaderFactory
 
     override fun onCreate() {
         super.onCreate()
+
+        // Installed first so a crash during any later init step is still logged.
+        CrashHandler.install(this)
 
         // Schedule media scan. WorkManager is auto-initialized on-demand via
         // the Configuration.Provider override above (no manual

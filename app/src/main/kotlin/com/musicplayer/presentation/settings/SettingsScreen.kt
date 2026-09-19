@@ -35,6 +35,7 @@ import com.musicplayer.data.repository.ThemeUiState
 import com.musicplayer.presentation.theme.AppIcons
 import com.musicplayer.presentation.theme.AppTheme
 import com.musicplayer.presentation.theme.colorSchemeFor
+import com.musicplayer.util.CrashHandler
 import com.musicplayer.worker.MediaScanWorker
 import com.musicplayer.worker.SdCardScanWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -327,6 +328,8 @@ fun SettingsScreen(
     val themeState by viewModel.themeState.collectAsState()
     var showConfirmRemove by remember { mutableStateOf<Uri?>(null) }
     var showPositionPicker by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val hasCrashLog = remember { CrashHandler.latestLog(context) != null }
 
     // Once the APK finishes downloading, immediately hand off to the installer
     LaunchedEffect(updateState) {
@@ -761,6 +764,22 @@ fun SettingsScreen(
                         Icon(AppIcons.MusicNote, null, tint = MaterialTheme.colorScheme.primary)
                     }
                 )
+            }
+
+            // Only shown if the app has actually crashed and left a log behind.
+            if (hasCrashLog) {
+                item {
+                    OutlinedButton(
+                        onClick = { CrashHandler.shareLatestLog(context) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                    ) {
+                        Icon(AppIcons.ErrorOutline, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Share Last Crash Log")
+                    }
+                }
             }
 
             // ── Update row, driven by updateState ────────────────────────
