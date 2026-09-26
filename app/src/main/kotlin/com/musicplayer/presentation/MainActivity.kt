@@ -24,8 +24,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import coil.compose.AsyncImage
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberPermissionState
+import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.musicplayer.presentation.theme.AppIcons
 import com.musicplayer.presentation.theme.MusicPlayerTheme
 import com.musicplayer.presentation.theme.ThemeViewModel
@@ -54,16 +53,28 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val playerState by playerViewModel.uiState.collectAsState()
 
-                // Permission handling
-                val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    Manifest.permission.READ_MEDIA_AUDIO
-                } else {
-                    Manifest.permission.READ_EXTERNAL_STORAGE
+                // Permission handling. POST_NOTIFICATIONS (API 33+) is a
+                // separate runtime permission the OS defaults to denied until
+                // requested — without it, the system silently drops the
+                // playback notification, which is also what drives the lock
+                // screen's media controls, so skipping this left song info
+                // frozen there instead of updating on each track change.
+                val permissions = buildList {
+                    add(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            Manifest.permission.READ_MEDIA_AUDIO
+                        } else {
+                            Manifest.permission.READ_EXTERNAL_STORAGE
+                        }
+                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
                 }
-                val permissionState = rememberPermissionState(permission)
+                val permissionsState = rememberMultiplePermissionsState(permissions)
                 LaunchedEffect(Unit) {
-                    if (!permissionState.status.isGranted) {
-                        permissionState.launchPermissionRequest()
+                    if (!permissionsState.allPermissionsGranted) {
+                        permissionsState.launchMultiplePermissionRequest()
                     }
                 }
 
