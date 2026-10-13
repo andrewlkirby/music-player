@@ -16,7 +16,9 @@ jobs:
       SIGNING_STORE_FILE: ${{ github.workspace }}/release.jks
       SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
       SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      # PKCS12 keystores have no separate key password — it's always the
+      # store password — so one secret covers both.
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,11 +58,7 @@ jobs:
             echo "::error::Keystore opened, but SIGNING_KEY_ALIAS ('$SIGNING_KEY_ALIAS') isn't in it — expected 'musicplayer'"
             exit 1
           fi
-          if ! keytool -certreq -keystore "$SIGNING_STORE_FILE" -storepass "$SIGNING_STORE_PASSWORD" -alias "$SIGNING_KEY_ALIAS" -keypass "$SIGNING_KEY_PASSWORD" > /dev/null 2>&1; then
-            echo "::error::SIGNING_KEY_PASSWORD is wrong (for this keystore it's the same as SIGNING_STORE_PASSWORD)"
-            exit 1
-          fi
-          echo "Keystore, alias and key password OK"
+          echo "Keystore and alias OK"
 
       # Job logs need a GitHub login to read; annotations don't. On failure,
       # surface Gradle's "What went wrong" block as an annotation.
