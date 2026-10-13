@@ -11,6 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.musicplayer.data.local.MusicDatabase
 import com.musicplayer.data.local.dao.*
 import com.musicplayer.data.repository.MusicRepository
+import com.musicplayer.service.setAudioOffloadEnabled
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -94,6 +95,7 @@ object PlayerModule {
         // screen needs a session tied to this player to work at all.
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         player.audioSessionId = audioManager.generateAudioSessionId()
+        player.setAudioOffloadEnabled(true)
 
         return player
     }

@@ -15,6 +15,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.exoplayer.ExoPlayer
+import com.musicplayer.service.setAudioOffloadEnabled
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -74,6 +75,7 @@ class EqualizerViewModel @Inject constructor(
 
             val presets = (0 until eq.numberOfPresets).map { eq.getPresetName(it.toShort()) }
 
+            player.setAudioOffloadEnabled(!eq.enabled)
             _uiState.update {
                 it.copy(
                     enabled = eq.enabled,
@@ -89,6 +91,7 @@ class EqualizerViewModel @Inject constructor(
 
     fun setEnabled(enabled: Boolean) {
         equalizer?.enabled = enabled
+        player.setAudioOffloadEnabled(!enabled)
         _uiState.update { it.copy(enabled = enabled) }
     }
 
@@ -133,6 +136,9 @@ class EqualizerViewModel @Inject constructor(
 
     override fun onCleared() {
         equalizer?.release()
+        // The EQ only applies while this screen holds it, so once it's
+        // released there's nothing that offload would bypass.
+        player.setAudioOffloadEnabled(true)
         super.onCleared()
     }
 }

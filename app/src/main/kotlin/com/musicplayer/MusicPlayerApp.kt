@@ -30,9 +30,13 @@ class MusicPlayerApp : Application(), Configuration.Provider, ImageLoaderFactory
     // and scroll-back. Size the disk cache for a large library instead.
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)
+            // 15% rather than Coil's 25% default: the disk cache above already
+            // makes re-decoding cheap, and a smaller heap footprint makes the
+            // process a less attractive low-memory kill target while it sits
+            // in the background playing audio.
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(0.15)
                     .build()
             }
             .diskCache {

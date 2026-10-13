@@ -42,6 +42,16 @@ class MainActivity : ComponentActivity() {
     // comes back from flipping the battery setting.
     private var backgroundRestricted by mutableStateOf(false)
 
+    override fun onStart() {
+        super.onStart()
+        playerViewModel.setUiVisible(true)
+    }
+
+    override fun onStop() {
+        playerViewModel.setUiVisible(false)
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         backgroundRestricted = isBackgroundRestricted(this)

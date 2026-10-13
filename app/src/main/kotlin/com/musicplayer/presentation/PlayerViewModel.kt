@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -58,6 +59,17 @@ class PlayerViewModel @Inject constructor(
     // player progress) recompose on each tick.
     private val _position = MutableStateFlow(0L)
     val position: StateFlow<Long> = _position.asStateFlow()
+
+    // Whether any of the app's UI is actually on screen (set from
+    // MainActivity's onStart/onStop). The ViewModel outlives a backgrounded
+    // activity, so without this the position ticker kept polling the
+    // controller twice a second for hours of background playback with
+    // nothing to draw.
+    private val uiVisible = MutableStateFlow(false)
+
+    fun setUiVisible(visible: Boolean) {
+        uiVisible.value = visible
+    }
 
     private var controller: MediaController? = null
     // The full ordered queue this session knows about — used for the "up next"
@@ -218,13 +230,21 @@ class PlayerViewModel @Inject constructor(
 
     private fun startPositionUpdater() {
         viewModelScope.launch {
-            uiState.map { it.isPlaying }.distinctUntilChanged().collectLatest { isPlaying ->
-                if (!isPlaying) return@collectLatest
-                while (true) {
-                    delay(500)
-                    _position.value = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
+            combine(
+                uiState.map { it.isPlaying }.distinctUntilChanged(),
+                uiVisible
+            ) { isPlaying, visible -> isPlaying && visible }
+                .distinctUntilChanged()
+                .collectLatest { shouldTick ->
+                    if (!shouldTick) return@collectLatest
+                    while (true) {
+                        // Read first, then wait: on returning to the app the
+                        // seek bar jumps to the real position immediately
+                        // instead of showing the stale pre-background value.
+                        _position.value = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
+                        delay(500)
+                    }
                 }
-            }
         }
     }
 
