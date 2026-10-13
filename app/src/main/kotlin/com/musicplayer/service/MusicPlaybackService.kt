@@ -42,6 +42,7 @@ class MusicPlaybackService : MediaSessionService() {
     // of writing (and invalidating the whole songs table) once per skip.
     private var playCountJob: Job? = null
     private var sleepTimerJob: Job? = null
+    private var playerListener: Player.Listener? = null
 
     // ── Virtual queue ────────────────────────────────────────────────────
     // The full ordered list of song IDs for "what's playing and in what order."
@@ -145,10 +146,17 @@ class MusicPlaybackService : MediaSessionService() {
         sleepTimerJob?.cancel()
         runBlocking { persistProgress() }
         serviceScope.cancel()
-        mediaSession?.run {
-            player.release()
-            release()
-        }
+        // The ExoPlayer is an app-wide @Singleton (EqualizerViewModel shares
+        // it too), so it outlives this service. Releasing it here meant that
+        // if the system destroyed and later recreated the service while the
+        // process survived, the new service got a dead player and playback
+        // silently never started. Stop and detach instead; restorePlaybackState()
+        // reloads the queue on the next onCreate.
+        playerListener?.let { player.removeListener(it) }
+        playerListener = null
+        player.stop()
+        player.clearMediaItems()
+        mediaSession?.release()
         mediaSession = null
         super.onDestroy()
     }
@@ -159,7 +167,7 @@ class MusicPlaybackService : MediaSessionService() {
     private fun virtualIndex(): Int = windowStartOffset + player.currentMediaItemIndex
 
     private fun setupPlayerListener() {
-        player.addListener(object : Player.Listener {
+        val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 schedulePersistProgress()
                 if (isPlaying) startPeriodicPersist() else periodicPersistJob?.cancel()
@@ -186,7 +194,9 @@ class MusicPlaybackService : MediaSessionService() {
                     loadWindowAround(virtualQueueIds, 0, 0L, virtualQueueShuffled, autoplay = true)
                 }
             }
-        })
+        }
+        playerListener = listener
+        player.addListener(listener)
     }
 
     // Rebuilds and writes the full playback_state row, including queueJson.

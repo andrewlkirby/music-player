@@ -15,6 +15,16 @@ class MediaScanWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
+        // enqueueInitialScan runs on every process start, and KEEP only dedupes
+        // against a scan that's still pending/running — a finished one gets
+        // re-enqueued. With a large library that meant a full MediaStore scan
+        // (minutes of CPU) after every cold start, including each time the
+        // system restarted the process in the background (a likely source of
+        // an EXCESSIVE CPU USAGE kill seen on-device). Only the very first
+        // scan (empty library) is automatic; rescans are manual from Settings.
+        if (inputData.getBoolean(KEY_ONLY_IF_EMPTY, false) && repository.getSongCount() > 0) {
+            return Result.success()
+        }
         return try {
             repository.scanMediaStore()
             Result.success()
@@ -27,6 +37,7 @@ class MediaScanWorker @AssistedInject constructor(
     companion object {
         const val WORK_NAME_INITIAL = "media_scan_initial"
         const val WORK_NAME_PERIODIC = "media_scan_periodic"
+        private const val KEY_ONLY_IF_EMPTY = "only_if_empty"
 
         fun enqueueInitialScan(workManager: WorkManager) {
             val request = OneTimeWorkRequestBuilder<MediaScanWorker>()
@@ -35,6 +46,7 @@ class MediaScanWorker @AssistedInject constructor(
                         .setRequiresBatteryNotLow(false)
                         .build()
                 )
+                .setInputData(workDataOf(KEY_ONLY_IF_EMPTY to true))
                 .build()
             workManager.enqueueUniqueWork(
                 WORK_NAME_INITIAL,

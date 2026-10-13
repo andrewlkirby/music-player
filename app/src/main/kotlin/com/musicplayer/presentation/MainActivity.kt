@@ -25,6 +25,8 @@ import androidx.navigation.compose.rememberNavController
 import coil.compose.AsyncImage
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.musicplayer.presentation.components.BackgroundRestrictionBanner
+import com.musicplayer.presentation.components.isBackgroundRestricted
 import com.musicplayer.presentation.theme.AppIcons
 import com.musicplayer.presentation.theme.MusicPlayerTheme
 import com.musicplayer.presentation.theme.ThemeViewModel
@@ -35,6 +37,15 @@ class MainActivity : ComponentActivity() {
 
     private val playerViewModel: PlayerViewModel by viewModels()
     private val themeViewModel: ThemeViewModel by viewModels()
+
+    // Re-checked on every resume so the banner clears as soon as the user
+    // comes back from flipping the battery setting.
+    private var backgroundRestricted by mutableStateOf(false)
+
+    override fun onResume() {
+        super.onResume()
+        backgroundRestricted = isBackgroundRestricted(this)
+    }
 
     @OptIn(ExperimentalPermissionsApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -112,6 +123,10 @@ class MainActivity : ComponentActivity() {
                         containerColor = if (hasBackgroundImage) Color.Transparent else MaterialTheme.colorScheme.background,
                         bottomBar = {
                         Column {
+                            if (backgroundRestricted) {
+                                BackgroundRestrictionBanner()
+                            }
+
                             // Mini player (shown when there's a current song and not on now playing)
                             AnimatedVisibility(
                                 visible = playerState.currentSong != null && showBottomBar,

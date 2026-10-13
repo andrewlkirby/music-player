@@ -78,6 +78,13 @@ object PlayerModule {
         val player = ExoPlayer.Builder(context)
             .setAudioAttributes(audioAttributes, /* handleAudioFocus= */ true)
             .setHandleAudioBecomingNoisy(true)
+            // Holds a partial wake lock while playing so the CPU can't doze
+            // mid-track with the screen off. Local files only, so no wifi lock.
+            .setWakeMode(C.WAKE_MODE_LOCAL)
+            // Lets the playback thread sleep until the audio sink actually
+            // needs data instead of polling every 10ms — that loop was the
+            // single biggest CPU consumer during background playback.
+            .experimentalSetDynamicSchedulingEnabled(true)
             .build()
 
         // Explicitly assign a real audio session id up front rather than
