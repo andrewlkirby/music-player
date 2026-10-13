@@ -50,12 +50,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.inject.Inject
 
 private const val UPDATE_REPO = "andrewlkirby/music-player"
+private const val RELEASE_APK_NAME = "app-release.apk"
 
 sealed class UpdateState {
     data object Idle : UpdateState()
@@ -275,33 +275,56 @@ class SettingsViewModel @Inject constructor(
         context.startActivity(installIntent)
     }
 
-    /** Returns (versionWithoutV, apkDownloadUrlOrNull) for the latest GitHub release. */
+    /**
+     * Returns (versionWithoutV, apkDownloadUrlOrNull) for the latest GitHub release.
+     *
+     * Deliberately avoids api.github.com: unauthenticated API calls are capped
+     * at 60/hour per public IP, shared by every device on the same network,
+     * so the check failed with HTTP 403 whenever anything else on the Wi-Fi
+     * had been using the API. The website's /releases/latest just redirects
+     * to /releases/tag/<tag> and isn't subject to that limit.
+     */
     private fun fetchLatestRelease(): Pair<String, String?> {
-        val url = URL("https://api.github.com/repos/$UPDATE_REPO/releases/latest")
-        val connection = url.openConnection() as HttpURLConnection
-        connection.setRequestProperty("Accept", "application/vnd.github+json")
-        connection.connectTimeout = 10_000
-        connection.readTimeout = 10_000
-        try {
-            if (connection.responseCode != 200) {
-                throw Exception("GitHub returned HTTP ${connection.responseCode}")
+        val latestUrl = URL("https://github.com/$UPDATE_REPO/releases/latest")
+        val tag = (latestUrl.openConnection() as HttpURLConnection).run {
+            instanceFollowRedirects = false
+            requestMethod = "HEAD"
+            connectTimeout = 10_000
+            readTimeout = 10_000
+            try {
+                val code = responseCode
+                if (code !in 300..399) throw Exception(httpErrorMessage(code))
+                getHeaderField("Location")
+                    ?.substringAfter("/releases/tag/", missingDelimiterValue = "")
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: throw Exception("Couldn't determine the latest release")
+            } finally {
+                disconnect()
             }
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(body)
-            val tag = json.getString("tag_name").removePrefix("v")
-            val assets = json.getJSONArray("assets")
-            var apkUrl: String? = null
-            for (i in 0 until assets.length()) {
-                val asset = assets.getJSONObject(i)
-                if (asset.getString("name").endsWith(".apk")) {
-                    apkUrl = asset.getString("browser_download_url")
-                    break
-                }
-            }
-            return tag to apkUrl
-        } finally {
-            connection.disconnect()
         }
+
+        // CI attaches the APK under a fixed name (see .github/workflows/build.yml).
+        val apkUrl = "https://github.com/$UPDATE_REPO/releases/download/$tag/$RELEASE_APK_NAME"
+        val apkExists = (URL(apkUrl).openConnection() as HttpURLConnection).run {
+            requestMethod = "HEAD"
+            connectTimeout = 10_000
+            readTimeout = 10_000
+            try {
+                when (val code = responseCode) {
+                    200 -> true
+                    404 -> false
+                    else -> throw Exception(httpErrorMessage(code))
+                }
+            } finally {
+                disconnect()
+            }
+        }
+        return tag.removePrefix("v") to apkUrl.takeIf { apkExists }
+    }
+
+    private fun httpErrorMessage(code: Int): String = when (code) {
+        403, 429 -> "GitHub is limiting requests right now — try again in a little while"
+        else -> "GitHub returned HTTP $code"
     }
 
     private fun isNewer(remote: String, local: String): Boolean {
