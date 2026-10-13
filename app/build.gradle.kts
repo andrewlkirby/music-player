@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -27,8 +29,33 @@ android {
         }
     }
 
+    // One permanent release key, so in-app updates can install over the
+    // previous version (Android rejects an update signed with a different
+    // key). CI supplies it via SIGNING_* env vars (from GitHub secrets);
+    // locally it's read from a properties file kept outside the repo.
+    // Never commit the keystore or its passwords — losing the key means
+    // every user has to uninstall to get future updates.
+    val localSigningProps = File(System.getProperty("user.home"), "keystores/music-player-keystore.properties")
+        .takeIf { it.exists() }
+        ?.let { f -> Properties().apply { f.inputStream().use { load(it) } } }
+    fun signingValue(env: String, prop: String): String? =
+        System.getenv(env)?.takeIf { it.isNotBlank() } ?: localSigningProps?.getProperty(prop)
+    val releaseStoreFile = signingValue("SIGNING_STORE_FILE", "storeFile")
+
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = signingValue("SIGNING_STORE_PASSWORD", "storePassword")
+                keyAlias = signingValue("SIGNING_KEY_ALIAS", "keyAlias")
+                keyPassword = signingValue("SIGNING_KEY_PASSWORD", "keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -38,6 +65,10 @@ android {
         }
         debug {
             isDebuggable = true
+            // Same key as release (when available) so a debug build can be
+            // installed over the release app and back without uninstalling —
+            // needed for adb run-as access to the app's data.
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 
