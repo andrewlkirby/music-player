@@ -17,8 +17,8 @@ android {
         targetSdk = 35
         // versionName must match the pushed git tag (without the "v") — the
         // in-app updater compares this against the latest GitHub release tag.
-        versionCode = 6
-        versionName = "1.0.5"
+        versionCode = 7
+        versionName = "1.0.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
