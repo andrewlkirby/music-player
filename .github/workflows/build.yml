@@ -56,10 +56,23 @@ jobs:
             echo "::error::Keystore opened, but SIGNING_KEY_ALIAS ('$SIGNING_KEY_ALIAS') isn't in it — expected 'musicplayer'"
             exit 1
           fi
-          echo "Keystore and alias OK"
+          if ! keytool -certreq -keystore "$SIGNING_STORE_FILE" -storepass "$SIGNING_STORE_PASSWORD" -alias "$SIGNING_KEY_ALIAS" -keypass "$SIGNING_KEY_PASSWORD" > /dev/null 2>&1; then
+            echo "::error::SIGNING_KEY_PASSWORD is wrong (for this keystore it's the same as SIGNING_STORE_PASSWORD)"
+            exit 1
+          fi
+          echo "Keystore, alias and key password OK"
 
+      # Job logs need a GitHub login to read; annotations don't. On failure,
+      # surface Gradle's "What went wrong" block as an annotation.
       - name: Build release APK
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          set -o pipefail
+          if ! ./gradlew assembleRelease --no-daemon 2>&1 | tee gradle-release.log; then
+            msg=$(sed -n '/What went wrong/,/^\* Try/p' gradle-release.log | head -40 | awk '{printf "%s%%0A", $0}')
+            [ -z "$msg" ] && msg=$(grep -E '^e: |error:|FAILED' gradle-release.log | head -20 | awk '{printf "%s%%0A", $0}')
+            echo "::error title=assembleRelease failed::$msg"
+            exit 1
+          fi
 
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --no-daemon
