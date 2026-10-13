@@ -42,6 +42,22 @@ jobs:
           fi
           echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$SIGNING_STORE_FILE"
 
+      # Fails here (instead of deep inside Gradle) with a specific message if
+      # a secret was pasted wrong. The SHA-256 of the keystore FILE is safe to
+      # print and can be compared against the local copy.
+      - name: Verify keystore and signing secrets
+        run: |
+          echo "keystore file sha256: $(sha256sum "$SIGNING_STORE_FILE" | cut -d' ' -f1)"
+          if ! keytool -list -keystore "$SIGNING_STORE_FILE" -storepass "$SIGNING_STORE_PASSWORD" > /dev/null 2>&1; then
+            echo "::error::Keystore can't be opened: SIGNING_KEYSTORE_BASE64 is corrupted/truncated or SIGNING_STORE_PASSWORD is wrong"
+            exit 1
+          fi
+          if ! keytool -list -keystore "$SIGNING_STORE_FILE" -storepass "$SIGNING_STORE_PASSWORD" -alias "$SIGNING_KEY_ALIAS" > /dev/null 2>&1; then
+            echo "::error::Keystore opened, but SIGNING_KEY_ALIAS ('$SIGNING_KEY_ALIAS') isn't in it — expected 'musicplayer'"
+            exit 1
+          fi
+          echo "Keystore and alias OK"
+
       - name: Build release APK
         run: ./gradlew assembleRelease --no-daemon
 
