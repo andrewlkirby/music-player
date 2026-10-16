@@ -3,12 +3,15 @@ package com.musicplayer.service
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
@@ -43,6 +46,35 @@ class MusicPlaybackService : MediaSessionService() {
     private var playCountJob: Job? = null
     private var sleepTimerJob: Job? = null
     private var playerListener: Player.Listener? = null
+
+    // Logs only on audio events (track setup/teardown, underruns, sink
+    // errors), never per-buffer, so it's cheap enough to leave in release
+    // builds — stutters are only ever reported from real-world listening,
+    // and `adb logcat -s AudioDiag` then shows exactly what the sink saw.
+    private val audioDiagListener = object : AnalyticsListener {
+        override fun onAudioTrackInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            audioTrackConfig: AudioSink.AudioTrackConfig
+        ) {
+            Log.i(AUDIO_DIAG_TAG, "track init: offload=${audioTrackConfig.offload} " +
+                "encoding=${audioTrackConfig.encoding} rate=${audioTrackConfig.sampleRate} " +
+                "bufferBytes=${audioTrackConfig.bufferSize}")
+        }
+
+        override fun onAudioUnderrun(
+            eventTime: AnalyticsListener.EventTime,
+            bufferSize: Int,
+            bufferSizeMs: Long,
+            elapsedSinceLastFeedMs: Long
+        ) {
+            Log.w(AUDIO_DIAG_TAG, "UNDERRUN bufferMs=$bufferSizeMs " +
+                "sinceLastFeedMs=$elapsedSinceLastFeedMs pos=${eventTime.currentPlaybackPositionMs}")
+        }
+
+        override fun onAudioSinkError(eventTime: AnalyticsListener.EventTime, audioSinkError: Exception) {
+            Log.w(AUDIO_DIAG_TAG, "sink error", audioSinkError)
+        }
+    }
 
     // ── Virtual queue ────────────────────────────────────────────────────
     // The full ordered list of song IDs for "what's playing and in what order."
@@ -109,6 +141,7 @@ class MusicPlaybackService : MediaSessionService() {
         // the direction of travel.
         private const val SHIFT_TRIGGER_REMAINING = 30
         private const val EXTEND_BATCH = 100
+        private const val AUDIO_DIAG_TAG = "AudioDiag"
     }
 
     override fun onCreate() {
@@ -129,6 +162,7 @@ class MusicPlaybackService : MediaSessionService() {
 
         restorePlaybackState()
         setupPlayerListener()
+        player.addAnalyticsListener(audioDiagListener)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -153,6 +187,7 @@ class MusicPlaybackService : MediaSessionService() {
         // silently never started. Stop and detach instead; restorePlaybackState()
         // reloads the queue on the next onCreate.
         playerListener?.let { player.removeListener(it) }
+        player.removeAnalyticsListener(audioDiagListener)
         playerListener = null
         player.stop()
         player.clearMediaItems()

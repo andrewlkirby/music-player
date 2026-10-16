@@ -82,10 +82,15 @@ object PlayerModule {
             // Holds a partial wake lock while playing so the CPU can't doze
             // mid-track with the screen off. Local files only, so no wifi lock.
             .setWakeMode(C.WAKE_MODE_LOCAL)
-            // Lets the playback thread sleep until the audio sink actually
-            // needs data instead of polling every 10ms — that loop was the
-            // single biggest CPU consumer during background playback.
-            .experimentalSetDynamicSchedulingEnabled(true)
+            // Deliberately NOT using experimentalSetDynamicSchedulingEnabled:
+            // it cut playback-thread CPU a little (24% -> 19% of a core on the
+            // non-offload path) but lets the thread sleep right up to the
+            // point the sink needs data, so a late wakeup under CPU contention
+            // (other apps busy, screen off) could underrun the AudioTrack. A
+            // screen-off, all-cores-busy stress test on 2026-10-16 showed no
+            // underruns with it on, so it wasn't the cause of the reported
+            // stutters (that was the seek bar), but the saving is small and
+            // audio offload delivers the real battery savings.
             .build()
 
         // Explicitly assign a real audio session id up front rather than
