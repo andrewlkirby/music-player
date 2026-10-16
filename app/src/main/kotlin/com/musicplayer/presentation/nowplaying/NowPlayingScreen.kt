@@ -283,10 +283,20 @@ private fun NowPlayingContent(
 @Composable
 private fun SeekBarSection(position: StateFlow<Long>, duration: Long, onSeek: (Long) -> Unit) {
     val pos by position.collectAsState()
+    // Where the thumb is while the user is touching it; null otherwise.
+    // Seeking on every onValueChange fired a seek per pointer move (5-10 per
+    // tap, more per drag), and each seek flushes the decoder and rebuilds the
+    // AudioTrack — audible as a stutter. Only seek once, on release.
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    val shownPos = dragFraction?.let { (it * duration).toLong() } ?: pos
     Column(modifier = Modifier.fillMaxWidth()) {
         Slider(
-            value = if (duration > 0) pos.toFloat() / duration else 0f,
-            onValueChange = { fraction -> onSeek((fraction * duration).toLong()) },
+            value = dragFraction ?: if (duration > 0) pos.toFloat() / duration else 0f,
+            onValueChange = { fraction -> dragFraction = fraction },
+            onValueChangeFinished = {
+                dragFraction?.let { onSeek((it * duration).toLong()) }
+                dragFraction = null
+            },
             modifier = Modifier.fillMaxWidth()
         )
         Row(
@@ -294,7 +304,7 @@ private fun SeekBarSection(position: StateFlow<Long>, duration: Long, onSeek: (L
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                formatDuration(pos),
+                formatDuration(shownPos),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
